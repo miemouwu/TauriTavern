@@ -5049,6 +5049,12 @@ async function GenerateInternal(type, { automatic_trigger, force_name2, quiet_pr
             const deletedAgentStateIds = collectAgentPersistStateIdsFromMessage(chat[chat.length - 1]);
             deleteItemizedPromptForMessage(chat.length - 1);
             chat.length = chat.length - 1;
+            // Keep the windowed-payload state in sync with the trimmed chat: like
+            // deleteLastMessage(), dropping the last message must mark the window
+            // dirty from this index. Otherwise the stale cursor/dirty range can
+            // make a later backfill splice in content from an old window range,
+            // i.e. regenerate appearing to use messages from many floors ago.
+            markWindowedChatDirtyFromIndex(chat.length);
             await removeLastMessage();
             await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
             if (deletedAgentStateIds.length > 0) {
