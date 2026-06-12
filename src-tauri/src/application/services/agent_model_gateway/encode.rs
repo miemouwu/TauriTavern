@@ -37,7 +37,11 @@ pub(crate) fn encode_chat_completion_request(
         payload.insert(
             "tool_choice".to_string(),
             if request.tool_choice.is_null() {
-                Value::String("auto".to_string())
+                // Agent tool loops force a tool call every round, so the gateway
+                // default mirrors the declared `required` constraint rather than
+                // `auto` (issue #75). Downstream provider builders map `required`
+                // to each provider's native form (Claude `any`, Gemini `ANY`).
+                Value::String("required".to_string())
             } else {
                 request.tool_choice.clone()
             },

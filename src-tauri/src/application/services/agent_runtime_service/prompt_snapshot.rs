@@ -58,7 +58,11 @@ pub(super) fn prepare_agent_tool_request(
         payload: request.payload,
         messages,
         tools: tools.to_vec(),
-        tool_choice: Value::String("auto".to_string()),
+        // The Agent system prompt declares `tool_choice: required` and every
+        // loop round must end through a finishing tool call, so the payload
+        // must force a tool call instead of leaving the model free to emit
+        // plain text and trigger an avoidable drift-recovery round (issue #75).
+        tool_choice: Value::String("required".to_string()),
         provider_state: json!({
             "sessionId": model_session_id(run_id, invocation_id),
             "runId": run_id,
@@ -351,6 +355,24 @@ mod tests {
             "Materialized Agent System Prompt."
         );
         assert_eq!(message_text(&request, 2), "hello");
+    }
+
+    #[test]
+    fn prepared_agent_request_forces_required_tool_choice() {
+        // The Agent system prompt declares `tool_choice: required`; the encoded
+        // request must match it so the model cannot drift into plain text and
+        // burn an avoidable drift-recovery round (issue #75).
+        let request = request_from_prompt_snapshot(&json!({
+            "chatCompletionPayload": {
+                "messages": [{ "role": "user", "content": "hello" }]
+            }
+        }))
+        .expect("request");
+
+        let request = prepare_agent_tool_request(request, &[], "run_test", "inv_root")
+            .expect("agent request");
+
+        assert_eq!(request.tool_choice, json!("required"));
     }
 
     #[test]
