@@ -48,6 +48,84 @@ fn decodes_tool_call_to_canonical_name() {
 }
 
 #[test]
+fn recovers_tool_arguments_with_trailing_prose() {
+    // DeepSeek sometimes appends prose after the JSON arguments object.
+    let registry = BuiltinAgentToolRegistry::phase2c();
+    let response = json!({
+        "choices": [{
+            "message": {
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace_write_file",
+                        "arguments": "{\"path\":\"output/main.md\",\"content\":\"hello\"} now writing the file"
+                    }
+                }]
+            }
+        }]
+    });
+
+    let decoded = decode_chat_completion_response(response, registry.specs()).unwrap();
+    assert_eq!(
+        decoded.tool_calls[0].arguments,
+        json!({ "path": "output/main.md", "content": "hello" })
+    );
+}
+
+#[test]
+fn recovers_tool_arguments_wrapped_in_code_fence() {
+    let registry = BuiltinAgentToolRegistry::phase2c();
+    let response = json!({
+        "choices": [{
+            "message": {
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace_write_file",
+                        "arguments": "```json\n{\"path\":\"output/main.md\"}\n```"
+                    }
+                }]
+            }
+        }]
+    });
+
+    let decoded = decode_chat_completion_response(response, registry.specs()).unwrap();
+    assert_eq!(
+        decoded.tool_calls[0].arguments,
+        json!({ "path": "output/main.md" })
+    );
+}
+
+#[test]
+fn preserves_raw_arguments_when_unrecoverable() {
+    // No embedded JSON: keep the raw string so the tool layer can reject it as a
+    // recoverable error instead of fabricating arguments.
+    let registry = BuiltinAgentToolRegistry::phase2c();
+    let response = json!({
+        "choices": [{
+            "message": {
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace_write_file",
+                        "arguments": "not json at all"
+                    }
+                }]
+            }
+        }]
+    });
+
+    let decoded = decode_chat_completion_response(response, registry.specs()).unwrap();
+    assert_eq!(
+        decoded.tool_calls[0].arguments,
+        json!("not json at all")
+    );
+}
+
+#[test]
 fn rejects_tool_call_without_id() {
     let registry = BuiltinAgentToolRegistry::phase2c();
     let response = json!({

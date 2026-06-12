@@ -201,12 +201,64 @@ fn canonical_tool_name<'a>(raw: &'a str, tools: &'a [AgentToolSpec]) -> Option<&
 
 fn parse_tool_call_arguments(value: Option<&Value>) -> Value {
     match value {
-        Some(Value::String(raw)) => {
-            serde_json::from_str::<Value>(raw).unwrap_or_else(|_| Value::String(raw.to_string()))
-        }
+        Some(Value::String(raw)) => parse_tool_call_arguments_str(raw),
         Some(Value::Null) | None => Value::Object(Map::new()),
         Some(value) => value.clone(),
     }
+}
+
+fn parse_tool_call_arguments_str(raw: &str) -> Value {
+    if let Ok(value) = serde_json::from_str::<Value>(raw) {
+        return value;
+    }
+    // Some providers (notably DeepSeek) occasionally wrap the JSON arguments in
+    // a markdown code fence or append trailing prose after the closing brace,
+    // e.g. `{"path":"output/main.md"} now writing the file`. Recover the first
+    // balanced JSON object/array and re-parse it. This only succeeds when a
+    // valid JSON value is embedded; otherwise the raw string is preserved so the
+    // tool layer rejects it as a recoverable error instead of failing the run.
+    if let Some(candidate) = first_balanced_json(raw) {
+        if let Ok(value) = serde_json::from_str::<Value>(candidate) {
+            return value;
+        }
+    }
+    Value::String(raw.to_string())
+}
+
+/// Returns the first top-level balanced `{...}` or `[...]` substring, tracking
+/// string literals so braces inside strings do not affect the depth count.
+fn first_balanced_json(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let start = bytes.iter().position(|&b| b == b'{' || b == b'[')?;
+    let open = bytes[start];
+    let close = if open == b'{' { b'}' } else { b']' };
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, &byte) in bytes.iter().enumerate().skip(start) {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b if b == open => depth += 1,
+            b if b == close => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&text[start..=index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn extract_text_from_message(message: &Map<String, Value>) -> String {
