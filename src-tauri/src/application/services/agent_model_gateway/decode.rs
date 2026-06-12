@@ -1,6 +1,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::application::errors::ApplicationError;
+use crate::application::services::agent_model_gateway::providers::AgentProviderAdapter;
 use crate::application::services::chat_completion_service::exchange::{
     ChatCompletionExchange, NormalizedChatCompletionResponse,
 };
@@ -22,10 +23,22 @@ pub(super) fn decode_chat_completion_exchange(
     exchange: ChatCompletionExchange,
     tools: &[AgentToolSpec],
 ) -> Result<AgentModelResponse, ApplicationError> {
-    if !exchange
-        .normalization_report
-        .synthetic_tool_call_ids()
-        .is_empty()
+    // Native providers (Claude / Gemini / OpenAI Responses) replay assistant
+    // tool calls from provider-owned native metadata, so a tool_call_id that had
+    // to be synthesized would break native continuation: keep failing fast.
+    //
+    // OpenAI-compatible providers (e.g. DeepSeek) have no native continuation;
+    // the tool_call_id only pairs our own assistant message with its tool result
+    // within the conversation we control. DeepSeek's tool calling is known to
+    // occasionally omit the id, so we tolerate the normalizer's deterministic
+    // synthesized id instead of failing the entire run (issue #75). The id flows
+    // through the rest of the loop consistently.
+    let adapter = AgentProviderAdapter::from_format(exchange.provider_format);
+    if adapter.native_provider().is_some()
+        && !exchange
+            .normalization_report
+            .synthetic_tool_call_ids()
+            .is_empty()
     {
         return Err(ApplicationError::ValidationError(format!(
             "model.invalid_tool_call: provider response is missing tool_call_id for tool calls: {}",

@@ -97,6 +97,38 @@ fn rejects_normalizer_synthetic_tool_call_id() {
 }
 
 #[test]
+fn tolerates_synthetic_tool_call_id_for_openai_compatible_provider() {
+    // DeepSeek (OpenAI-compatible) has no native continuation, so a tool call
+    // whose id had to be synthesized must NOT fail the run: the synthesized id
+    // pairs our assistant message with its tool result consistently (issue #75).
+    let registry = BuiltinAgentToolRegistry::phase2c();
+    let response = json!({
+        "choices": [{
+            "message": {
+                "tool_calls": [{
+                    "id": "tool_call_0",
+                    "type": "function",
+                    "function": { "name": "workspace_finish", "arguments": "{}" }
+                }]
+            }
+        }]
+    });
+    let mut report = ChatCompletionNormalizationReport::default();
+    report.record_synthetic_tool_call_id("tool_call_0");
+    let exchange = ChatCompletionExchange {
+        source: ChatCompletionSource::DeepSeek,
+        provider_format: ChatCompletionProviderFormat::OpenAiCompatible,
+        normalized_response: NormalizedChatCompletionResponse::from_value(response).unwrap(),
+        normalization_report: report,
+    };
+
+    let decoded = decode_chat_completion_exchange(exchange, registry.specs())
+        .expect("openai-compatible synthetic tool_call_id must be tolerated");
+    assert_eq!(decoded.tool_calls.len(), 1);
+    assert_eq!(decoded.tool_calls[0].id, "tool_call_0");
+}
+
+#[test]
 fn gemini_schema_sanitizer_removes_unsupported_keys_deeply() {
     let schema = json!({
         "type": "object",
