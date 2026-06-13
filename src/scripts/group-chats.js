@@ -915,6 +915,8 @@ export async function renameGroupMember(oldAvatar, newAvatar, newName) {
 
                     if (hadChanges) {
                         await eventSource.emit(event_types.CHARACTER_RENAMED_IN_PAST_CHAT, messages, oldAvatar, newAvatar);
+                        // Agent Memory P0: this past-chat save bypasses saveGroupChatUnsafe — stamp ids before persisting.
+                        stampAllMessages(messages);
                         if (isTauriChatPayloadTransportEnabled()) {
                             await saveGroupChatPayload({ id: chatId, payload: [...messages] });
                         } else {
@@ -2578,6 +2580,8 @@ export async function saveGroupBookmarkChat(groupId, name, metadata, mesId) {
     const trimmedChat = (mesId !== undefined && mesId >= 0 && mesId < chat.length)
         ? chat.slice(0, Number(mesId) + 1)
         : chat;
+    // Agent Memory P0: bookmark copy save bypasses saveGroupChatUnsafe — stamp ids before persisting.
+    stampAllMessages(trimmedChat);
 
     await editGroup(groupId, true, false);
 
