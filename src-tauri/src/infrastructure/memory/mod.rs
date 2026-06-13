@@ -1,7 +1,11 @@
+#![allow(dead_code)] // P2a foundation; wired into agent tools in P2b
 use std::path::Path;
 use std::sync::Mutex;
 
 use rusqlite::Connection;
+
+pub mod entities;
+pub mod types;
 
 pub const MEMORY_SCHEMA_VERSION: i64 = 1;
 
@@ -10,11 +14,17 @@ const SCHEMA_SQL: &str = include_str!("schema.sql");
 #[derive(Debug)]
 pub enum MemoryError {
     Sqlite(rusqlite::Error),
+    Serde(serde_json::Error),
     VersionConflict { expected: i64, actual: i64 },
 }
 impl From<rusqlite::Error> for MemoryError {
     fn from(e: rusqlite::Error) -> Self {
         MemoryError::Sqlite(e)
+    }
+}
+impl From<serde_json::Error> for MemoryError {
+    fn from(e: serde_json::Error) -> Self {
+        MemoryError::Serde(e)
     }
 }
 pub type MemoryResult<T> = Result<T, MemoryError>;
@@ -96,7 +106,35 @@ impl MemoryStore {
 
 #[cfg(test)]
 mod tests {
+    use super::types::Entity;
     use super::*;
+
+    #[test]
+    fn entity_upsert_is_cas_guarded() {
+        let s = MemoryStore::open_in_memory().unwrap();
+        let e = Entity {
+            id: "guyuan".into(),
+            name: "顾远".into(),
+            confidence: "canon".into(),
+            ..Default::default()
+        };
+        let v1 = s.upsert_entity(&e, Some(0)).unwrap(); // create at version 0 -> 1
+        assert_eq!(v1, 1);
+        let got = s.get_entity("guyuan").unwrap().unwrap();
+        assert_eq!(got.name, "顾远");
+        assert_eq!(got.version, 1);
+        let err = s.upsert_entity(&e, Some(0)).unwrap_err(); // stale version rejected
+        assert!(matches!(
+            err,
+            MemoryError::VersionConflict {
+                expected: 0,
+                actual: 1
+            }
+        ));
+        let v2 = s.upsert_entity(&e, Some(1)).unwrap(); // correct version bumps
+        assert_eq!(v2, 2);
+    }
+
     #[test]
     fn open_in_memory_migrates_schema_and_sets_version() {
         let store = MemoryStore::open_in_memory().unwrap();
