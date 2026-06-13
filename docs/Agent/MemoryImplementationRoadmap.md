@@ -30,9 +30,9 @@ v3 §10 复用 `summary.rs` 的 per-file Bloom + 新写每行 trigram 指纹做�
 - **`timeline(range)`**:`diegetic_seq` B-tree 范围查询,取代 grep JSONL。
 - **§9 原子合并**:多表 delta 写 + 推进水位线 = **单事务**(ACID),取代「staging + rename」。
 - **§15 条目级 CAS**:`UPDATE … WHERE version = ?`,取代手写 read-before-write。
-- **依赖**:`rusqlite`(`bundled` + FTS5);桌面 / Android / iOS 全支持(移动端 SQLite 原生,反而理想)。
+- **依赖(全新,未验)**:`rusqlite`(`bundled` + FTS5)。移动端 SQLite 原生理论理想,但**本仓无任何 sqlite 依赖**,bundled+FTS5 在 Tauri **Android/iOS** 真能编需 spike 验证(§7)。
 - **事实层不变**:chat 仍 JSONL → 仍满足 I2「memory = derive(chat),可重建」(rebuild = drop tables + 重派生)。
-- **持久化集成(P2 定稿,见 §7)**:memory.db 在 run commit 边界内 WAL-checkpoint + 整文件快照 → run rollback 原子回退 Memory;rebuild 为兜底。
+- **持久化集成(⚠️ make-or-break,提前 spike,见 §7)**:persist 拷贝是**盲目目录文件遍历**(`fs_tree.rs:31` `copy_directory_contents`)、每 run 拷入/拷出 + 不可变快照。塞活 `.db` 两个雷:(a) **WAL 一致性**——`.db`/`-wal`/`-shm` 被盲拷会损坏/陈旧,**须用 SQLite backup API / `VACUUM INTO` 产干净快照**,非盲拷活库;(b) **二进制增长**——增长的 `.db` 每 run 全量拷 + 每快照各存一份,比 JSONL 更难 dedup。A(库在 run root 内快照)vs B(库在 per-run 拷贝外、自身事务+journal,rollback 靠 rebuild)是真分叉,**P2 开工前 spike 定**。
 - **透明度代价**:`.db` 非 git-diff → 加 `memory.export`(dump 成 JSON)缓解。
 
 ## 2. P0 — 消息身份 + token 估算(先做)
@@ -43,7 +43,7 @@ v3 §10 复用 `summary.rs` 的 per-file Bloom + 新写每行 trigram 指纹做�
 - **stamp 落点**:chat 持久化处(`AgentToolEffect::ChatCommitRequested` 处理 + chat-save 路径,非 `commit.rs`——它只发 effect)。单一 helper `stamp_identity(&mut ChatMessage)`:无 `msgId` 补 uuid,(重)算 `contentSha`。覆盖 user + assistant。
 - **`contentSha`** = `sha256(mes)`(活动正文;swipe/edit 改 `mes` → sha 变 → §5 完整性校验触发)。
 - **`id↔position`**:P0 用 scan resolver(从消息 `extra` 重建,无新存储);持久缓存随 P2 进 SQLite `message_index` 表。→ **P0 不依赖 SQLite**。
-- **已定决策**:① 在中心持久化点 stamp(所有消息);② `contentSha = sha256(mes)`。
+- **已定决策**:① 在中心持久化点 stamp(所有消息);② `contentSha = sha256(mes)`;③ source_refs 只引用**已保存(已 stamp)**的消息——consolidation 处理已 commit 历史,本轮未保存消息不被引用。
 
 ### 2.2 token 估算
 
@@ -66,7 +66,7 @@ stamp 幂等;未知字段 round-trip 保留;`contentSha` 稳定 / 改 `mes` 即�
 - **新 persist root** `persist/memory/`(独立、模型不可写;ACL `policy.rs` root 级 → 不置于可写 root 下,杜绝 `workspace_write_file` 绕过 §15)。
 - **SQLite schema**(`memory.db`):
   - `entities(id, name, aliases, relationships, address, state, voice, last_confirmed_turn, confidence, source_refs, version)`
-  - `timeline(event_id PK, narration_order, diegetic_seq, story_time_label, frame, status, summary, source_refs)` + index(diegetic_seq)
+  - `timeline(event_id PK, narration_order, diegetic_seq, story_time_label, frame, status, summary, participants, notable_absent, source_refs)` + index(diegetic_seq)（participants/notable_absent 防相似事件串味,见 MemoryCompaction §4.2/v3.1）
   - `threads`、`state`、`plan`
   - `overrides(target, field, value, scope_refs)`(human_override 独立断言,§14)
   - `message_index(msg_id, position, content_sha)`(P0 resolver 的持久化)
@@ -93,7 +93,7 @@ stamp 幂等;未知字段 round-trip 保留;`contentSha` 稳定 / 改 `mes` 即�
 
 ## 7. 风险与待定
 
-- **memory.db × per-run 快照/rollback**(P2 定稿):快照整 `.db`(WAL-checkpoint)vs 置于 run 边界外靠自身事务 + journal;倾向前者(原子 rollback),`rebuild` 兜底。
+- **memory.db × per-run 快照/rollback(提前 spike,非 P2 定稿)**:persist 是盲目录拷贝,活 `.db` 盲拷会损坏。**A**(run root 内快照,须 backup-API/`VACUUM INTO` + 写静默,回滚干净)vs **B**(库在 per-run 拷贝外,自身事务+journal 持久,rollback 靠 `rebuild`,避开每 run 拷增长二进制)。对会增长的 authoritative 索引,**评审倾向 B**(别每 run 拷大二进制);路线图原倾向 A。**spike 内容**:①验证 rusqlite `bundled`+FTS5 在 Tauri Android/iOS 真能编;②实测 `.db` 增长/拷贝成本 → 再定 A/B。
 - **`max_context` 具体数值**:各 model family 待填官方/实测值;fallback 取保守(如 8k)。
 - **tail_len 群聊**:多条尾部可 swipe → 群聊按可 swipe 深度调高。
 - **每 run 全量拷 `memory.db` 成本**(§16/N4):大库时评估差量;本轮先全拷,GC/差量留 P5。
