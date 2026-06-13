@@ -6,6 +6,7 @@ pub mod background;
 pub mod bedrock_model;
 pub mod character;
 pub mod chat;
+pub mod chat_identity;
 pub mod extension;
 pub mod group;
 pub mod image_metadata;

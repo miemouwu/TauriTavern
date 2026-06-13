@@ -131,6 +131,19 @@ pub struct TimedWorldInfo {
     pub cooldown: HashMap<String, serde_json::Value>,
 }
 
+/// Stable, TauriTavern-owned message identity (Agent Memory provenance).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TauritavernMeta {
+    #[serde(default, rename = "msgId", skip_serializing_if = "Option::is_none")]
+    pub msg_id: Option<String>,
+
+    #[serde(default, rename = "contentSha", skip_serializing_if = "Option::is_none")]
+    pub content_sha: Option<String>,
+
+    #[serde(default, flatten)]
+    pub additional: HashMap<String, serde_json::Value>,
+}
+
 /// Chat message extra data
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MessageExtra {
@@ -172,6 +185,9 @@ pub struct MessageExtra {
 
     #[serde(default)]
     pub force_avatar: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tauritavern: Option<TauritavernMeta>,
 
     #[serde(default, flatten)]
     pub additional: HashMap<String, serde_json::Value>,
@@ -469,5 +485,33 @@ mod tests {
         let truncated = truncate_chat_file_stem_prefix(&prefix, suffix);
         assert!(truncated.is_char_boundary(truncated.len()));
         assert!(format!("{}{}.jsonl", truncated, suffix).len() <= 255);
+    }
+}
+
+#[cfg(test)]
+mod tauritavern_meta_tests {
+    use super::*;
+
+    #[test]
+    fn message_extra_round_trips_tauritavern_and_preserves_unknown_keys() {
+        let raw = serde_json::json!({
+            "api": "openai",
+            "tauritavern": { "msgId": "m_abc", "contentSha": "deadbeef" },
+            "some_future_field": 42
+        });
+        let extra: MessageExtra = serde_json::from_value(raw).unwrap();
+        let meta = extra.tauritavern.as_ref().expect("tauritavern present");
+        assert_eq!(meta.msg_id.as_deref(), Some("m_abc"));
+        assert_eq!(meta.content_sha.as_deref(), Some("deadbeef"));
+        let back = serde_json::to_value(&extra).unwrap();
+        assert_eq!(back["some_future_field"], serde_json::json!(42));
+        assert_eq!(back["tauritavern"]["msgId"], serde_json::json!("m_abc"));
+    }
+
+    #[test]
+    fn message_extra_without_tauritavern_omits_the_key() {
+        let extra = MessageExtra::default();
+        let back = serde_json::to_value(&extra).unwrap();
+        assert!(back.get("tauritavern").is_none(), "absent meta must not serialize");
     }
 }

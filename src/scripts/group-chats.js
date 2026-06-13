@@ -93,6 +93,7 @@ import {
     saveGroupChatPayload,
     patchGroupChatPayloadWindowed,
 } from './chat-payload-transport.js';
+import { stampAllMessages } from './tauritavern/message-identity.js';
 import {
     buildWindowedPayloadPatch,
     clearWindowedChatState,
@@ -402,6 +403,8 @@ export async function getGroupChat(groupId, reload = false, { allowNewChat = fal
         }
         chat.splice(0, chat.length, ...data);
         chat.forEach(ensureMessageMediaIsArray);
+        // Agent Memory P0: stamp stable ids on loaded group-chat messages (backfills legacy on open).
+        stampAllMessages(chat);
         chatElement.find('.mes').remove();
         await printMessages();
         if (!isStillActive()) {
@@ -753,6 +756,8 @@ async function saveGroupChatUnsafe(groupId, shouldSaveGroup, force = false) {
         user_name: 'unused',
         character_name: 'unused',
     };
+    // Agent Memory P0: stamp stable ids on group-chat messages before persisting (backfills legacy).
+    stampAllMessages(chat);
     const payload = [chatHeader, ...chat];
     const isIntegrityTransportError = (error) =>
         String(error?.code || '').toLowerCase() === 'integrity'
@@ -910,6 +915,8 @@ export async function renameGroupMember(oldAvatar, newAvatar, newName) {
 
                     if (hadChanges) {
                         await eventSource.emit(event_types.CHARACTER_RENAMED_IN_PAST_CHAT, messages, oldAvatar, newAvatar);
+                        // Agent Memory P0: this past-chat save bypasses saveGroupChatUnsafe — stamp ids before persisting.
+                        stampAllMessages(messages);
                         if (isTauriChatPayloadTransportEnabled()) {
                             await saveGroupChatPayload({ id: chatId, payload: [...messages] });
                         } else {
@@ -2573,6 +2580,8 @@ export async function saveGroupBookmarkChat(groupId, name, metadata, mesId) {
     const trimmedChat = (mesId !== undefined && mesId >= 0 && mesId < chat.length)
         ? chat.slice(0, Number(mesId) + 1)
         : chat;
+    // Agent Memory P0: bookmark copy save bypasses saveGroupChatUnsafe — stamp ids before persisting.
+    stampAllMessages(trimmedChat);
 
     await editGroup(groupId, true, false);
 

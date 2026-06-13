@@ -44,6 +44,7 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         super::chat_commands::patch_chat_payload_windowed,
         super::chat_commands::save_chat_payload_from_file,
         super::chat_commands::import_character_chats,
+        super::chat_commands::backfill_chat_identity,
         // Group chat commands
         super::group_chat_commands::search_group_chats,
         super::group_chat_commands::list_group_chat_summaries,

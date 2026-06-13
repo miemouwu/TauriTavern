@@ -56,6 +56,7 @@ import {
 import { agentErrorMessage } from './scripts/tauritavern/agent/agent-error-presenter.js';
 import { normalizeAgentContextPolicy } from './scripts/tauritavern/agent/agent-context-policy.js';
 import { normalizeAgentSystemPrompt } from './scripts/tauritavern/agent/agent-system-prompt.js';
+import { stampAllMessages } from './scripts/tauritavern/message-identity.js';
 import {
     buildFrozenRunInputSnapshot,
     normalizeFrozenRunInputSnapshot,
@@ -8374,6 +8375,9 @@ async function saveChatUnsafe({ chatName, withMetadata, mesId, force = false, ch
         return;
     }
 
+    // Agent Memory P0: stamp stable ids on every persisted message (backfills legacy).
+    stampAllMessages(chatData ?? chat);
+
     characters[this_chid].date_last_chat = Date.now();
 
     const trimmedChat = Array.isArray(chatData)
@@ -8778,6 +8782,8 @@ async function getChatResult({ allowNewChat = false } = {}) {
         // Make sure the chat appears on the server
         await saveChatConditional();
     }
+    // Agent Memory P0: backfill ids when an (old) chat is opened; persisted on next save.
+    stampAllMessages(chat);
     await loadItemizedPrompts(getCurrentChatId());
     await printMessages();
     select_selected_character(this_chid);

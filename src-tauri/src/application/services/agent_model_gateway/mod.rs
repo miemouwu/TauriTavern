@@ -7,10 +7,13 @@ use tokio::sync::watch;
 use crate::application::errors::ApplicationError;
 use crate::application::services::chat_completion_service::ChatCompletionService;
 use crate::domain::models::agent::{AgentModelRequest, AgentModelResponse};
+use crate::domain::repositories::tokenizer_repository::TokenizerRepository;
+use crate::infrastructure::logging::logger;
 
 mod decode;
 mod encode;
 mod format;
+mod model_context;
 mod provider_state;
 mod providers;
 mod schema;
@@ -40,12 +43,17 @@ pub struct AgentModelExchange {
 
 pub struct ChatCompletionAgentModelGateway {
     chat_completion_service: Arc<ChatCompletionService>,
+    tokenizer: Arc<dyn TokenizerRepository>,
 }
 
 impl ChatCompletionAgentModelGateway {
-    pub fn new(chat_completion_service: Arc<ChatCompletionService>) -> Self {
+    pub fn new(
+        chat_completion_service: Arc<ChatCompletionService>,
+        tokenizer: Arc<dyn TokenizerRepository>,
+    ) -> Self {
         Self {
             chat_completion_service,
+            tokenizer,
         }
     }
 }
@@ -58,6 +66,18 @@ impl AgentModelGateway for ChatCompletionAgentModelGateway {
         cancel: watch::Receiver<bool>,
     ) -> Result<AgentModelExchange, ApplicationError> {
         let dto = encode::encode_chat_completion_request(&request)?;
+        // Agent Memory P0: measure the encoded provider payload (messages + tool
+        // schemas) against the model's window.
+        if let Some(model) = dto.payload.get("model").and_then(|v| v.as_str()) {
+            if let Some(budget) =
+                model_context::compute_prompt_budget(self.tokenizer.as_ref(), model, &dto.payload)
+            {
+                logger::debug(&format!(
+                    "agent prompt budget: model={} tokens={} max={} ratio={:.3}",
+                    model, budget.tokens, budget.max_context, budget.ratio
+                ));
+            }
+        }
         let exchange = self
             .chat_completion_service
             .generate_exchange_with_cancel(dto, cancel)

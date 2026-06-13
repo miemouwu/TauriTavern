@@ -17,6 +17,62 @@ use crate::domain::repositories::chat_completion_repository::{
     CHAT_COMPLETION_PROVIDER_STATE_FIELD, ChatCompletionNormalizationReport, ChatCompletionSource,
 };
 
+struct CountingTokenizer;
+
+#[async_trait::async_trait]
+impl crate::domain::repositories::tokenizer_repository::TokenizerRepository for CountingTokenizer {
+    async fn ensure_model_ready(&self, _model: &str) -> Result<(), crate::domain::errors::DomainError> {
+        Ok(())
+    }
+    fn encode(&self, _model: &str, text: &str) -> Result<Vec<u32>, crate::domain::errors::DomainError> {
+        Ok(vec![0u32; text.chars().count()]) // 1 "token" per char — deterministic
+    }
+    fn decode(
+        &self,
+        _model: &str,
+        _ids: &[u32],
+    ) -> Result<String, crate::domain::errors::DomainError> {
+        Ok(String::new())
+    }
+    fn count_messages(
+        &self,
+        _model: &str,
+        messages: &[Value],
+    ) -> Result<usize, crate::domain::errors::DomainError> {
+        Ok(messages.len()) // 1 "token" per message — deterministic
+    }
+}
+
+#[test]
+fn prompt_budget_counts_messages_and_tool_schemas() {
+    let mut payload = serde_json::Map::new();
+    payload.insert("model".into(), serde_json::json!("deepseek-chat"));
+    payload.insert(
+        "messages".into(),
+        serde_json::json!([{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}]),
+    );
+    let tools = serde_json::json!([{"type":"function","function":{"name":"t"}}]);
+    payload.insert("tools".into(), tools.clone());
+
+    let with_tools =
+        super::model_context::compute_prompt_budget(&CountingTokenizer, "deepseek-chat", &payload)
+            .unwrap();
+    // 2 messages + tools-string char count
+    let tools_chars = tools.to_string().chars().count();
+    assert_eq!(with_tools.tokens, 2 + tools_chars);
+    assert!(
+        with_tools.tokens > 2,
+        "tool schemas must be counted, not ignored"
+    );
+
+    payload.remove("tools");
+    let without =
+        super::model_context::compute_prompt_budget(&CountingTokenizer, "deepseek-chat", &payload)
+            .unwrap();
+    assert_eq!(without.tokens, 2);
+    assert_eq!(without.max_context, 65_536);
+}
+
 #[test]
 fn decodes_tool_call_to_canonical_name() {
     let registry = BuiltinAgentToolRegistry::phase2c();
