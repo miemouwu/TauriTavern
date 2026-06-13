@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 
 pub mod entities;
+pub mod search;
 pub mod timeline;
 pub mod types;
 
@@ -108,6 +109,7 @@ impl MemoryStore {
 #[cfg(test)]
 mod tests {
     use super::types::Entity;
+    use super::types::SearchSource;
     use super::types::TimelineEvent;
     use super::*;
 
@@ -160,6 +162,40 @@ mod tests {
             vec!["e1", "e2"]
         );
         assert_eq!(s.timeline_range(120, 200).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn search_finds_cjk_substring_across_entities_and_timeline() {
+        let s = MemoryStore::open_in_memory().unwrap();
+        s.upsert_entity(
+            &Entity {
+                id: "luoyunxi".into(),
+                name: "洛云希".into(),
+                ..Default::default()
+            },
+            Some(0),
+        )
+        .unwrap();
+        s.insert_timeline_event(&TimelineEvent {
+            event_id: "e1".into(),
+            diegetic_seq: 1,
+            summary: "顾远向林安安表白，洛云希在场".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        // mid-string CJK substring matches the timeline summary
+        let hits = s.search("向林安", 10).unwrap();
+        assert!(hits
+            .iter()
+            .any(|h| h.id == "e1" && h.source == SearchSource::Timeline));
+        // a name that appears in BOTH an entity and a timeline summary
+        let hits2 = s.search("洛云希", 10).unwrap();
+        assert!(hits2
+            .iter()
+            .any(|h| h.source == SearchSource::Entity && h.id == "luoyunxi"));
+        assert!(hits2
+            .iter()
+            .any(|h| h.source == SearchSource::Timeline && h.id == "e1"));
     }
 
     #[test]

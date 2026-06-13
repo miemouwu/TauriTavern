@@ -29,3 +29,16 @@ pub struct TimelineEvent {
     pub notable_absent: Vec<String>,
     pub source_refs: serde_json::Value,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchSource {
+    Entity,
+    Timeline,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchHit {
+    pub id: String, // entity id or event_id
+    pub source: SearchSource,
+    pub snippet: String, // the matched text (name/summary)
+}
