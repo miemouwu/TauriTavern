@@ -21,8 +21,6 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
-pub use model_context::{max_context_for, PromptBudget};
-
 #[cfg(test)]
 pub(crate) use decode::decode_chat_completion_response;
 

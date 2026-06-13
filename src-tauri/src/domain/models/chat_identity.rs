@@ -40,6 +40,7 @@ pub fn stamp_all(messages: &mut [ChatMessage]) -> usize {
 }
 
 /// Resolve a `msgId` to its current 0-based position.
+#[allow(dead_code)] // consumed by P3 consolidation; part of the P0 id↔position resolver
 pub fn position_of(messages: &[ChatMessage], msg_id: &str) -> Option<usize> {
     messages.iter().position(|m| {
         m.extra
@@ -51,6 +52,7 @@ pub fn position_of(messages: &[ChatMessage], msg_id: &str) -> Option<usize> {
 }
 
 /// Build a `msgId -> position` index (cache for later consolidation).
+#[allow(dead_code)] // consumed by P3 consolidation; part of the P0 id↔position resolver
 pub fn build_id_index(messages: &[ChatMessage]) -> HashMap<String, usize> {
     let mut index = HashMap::new();
     for (pos, m) in messages.iter().enumerate() {
