@@ -18,6 +18,22 @@ use crate::domain::repositories::chat_completion_repository::{
 };
 
 #[test]
+fn prompt_budget_from_encoded_payload_uses_registry() {
+    let messages = vec![
+        serde_json::json!({"role": "user", "content": "hello"}),
+        serde_json::json!({"role": "assistant", "content": "hi"}),
+    ];
+    let tokens = 7usize;
+    let budget = super::model_context::PromptBudget::new(
+        tokens,
+        super::model_context::max_context_for("deepseek-chat"),
+    );
+    assert_eq!(budget.max_context, 65_536);
+    assert!(budget.ratio > 0.0 && budget.ratio < 0.001);
+    assert_eq!(messages.len(), 2);
+}
+
+#[test]
 fn decodes_tool_call_to_canonical_name() {
     let registry = BuiltinAgentToolRegistry::phase2c();
     let response = json!({

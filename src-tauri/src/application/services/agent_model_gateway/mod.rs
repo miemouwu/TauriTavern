@@ -7,6 +7,8 @@ use tokio::sync::watch;
 use crate::application::errors::ApplicationError;
 use crate::application::services::chat_completion_service::ChatCompletionService;
 use crate::domain::models::agent::{AgentModelRequest, AgentModelResponse};
+use crate::domain::repositories::tokenizer_repository::TokenizerRepository;
+use crate::infrastructure::logging::logger;
 
 mod decode;
 mod encode;
@@ -43,12 +45,17 @@ pub struct AgentModelExchange {
 
 pub struct ChatCompletionAgentModelGateway {
     chat_completion_service: Arc<ChatCompletionService>,
+    tokenizer: Arc<dyn TokenizerRepository>,
 }
 
 impl ChatCompletionAgentModelGateway {
-    pub fn new(chat_completion_service: Arc<ChatCompletionService>) -> Self {
+    pub fn new(
+        chat_completion_service: Arc<ChatCompletionService>,
+        tokenizer: Arc<dyn TokenizerRepository>,
+    ) -> Self {
         Self {
             chat_completion_service,
+            tokenizer,
         }
     }
 }
@@ -61,6 +68,20 @@ impl AgentModelGateway for ChatCompletionAgentModelGateway {
         cancel: watch::Receiver<bool>,
     ) -> Result<AgentModelExchange, ApplicationError> {
         let dto = encode::encode_chat_completion_request(&request)?;
+        // Agent Memory P0: measure the encoded provider payload against the model's window.
+        if let (Some(model), Some(messages)) = (
+            dto.payload.get("model").and_then(|v| v.as_str()),
+            dto.payload.get("messages").and_then(|v| v.as_array()),
+        ) {
+            if let Ok(tokens) = self.tokenizer.count_messages(model, messages) {
+                let budget =
+                    model_context::PromptBudget::new(tokens, model_context::max_context_for(model));
+                logger::debug(&format!(
+                    "agent prompt budget: model={} tokens={} max={} ratio={:.3}",
+                    model, budget.tokens, budget.max_context, budget.ratio
+                ));
+            }
+        }
         let exchange = self
             .chat_completion_service
             .generate_exchange_with_cancel(dto, cancel)

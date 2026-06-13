@@ -281,6 +281,7 @@ pub(super) async fn build_services(
         skill_service.clone(),
         Arc::new(ChatCompletionAgentModelGateway::new(
             chat_completion_service.clone(),
+            repositories.tokenizer_repository.clone(),
         )),
         agent_profile_service.clone(),
         llm_connection_service.clone(),
