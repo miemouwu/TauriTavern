@@ -709,4 +709,127 @@ impl ChatService {
             .await
             .map_err(Into::into)
     }
+
+    /// One-time backfill: stamp stable ids on all messages of an existing chat and persist.
+    /// Returns the number of messages newly assigned a `msgId`. Idempotent.
+    pub async fn backfill_chat_identity(
+        &self,
+        character_name: &str,
+        file_name: &str,
+    ) -> Result<usize, ApplicationError> {
+        use crate::domain::models::chat_identity::stamp_all;
+
+        tracing::info!("Backfilling chat identity: {}/{}", character_name, file_name);
+
+        let mut chat = self
+            .chat_repository
+            .get_chat(character_name, file_name)
+            .await?;
+        let newly = stamp_all(&mut chat.messages);
+        if newly > 0 {
+            self.chat_repository.save(&chat).await?;
+        }
+        Ok(newly)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use rand::random;
+    use std::path::PathBuf;
+    use tokio::fs;
+
+    use crate::application::services::agent_workspace_lifecycle_service::AgentRunActivity;
+    use crate::infrastructure::repositories::file_agent_repository::FileAgentRepository;
+    use crate::infrastructure::repositories::file_character_repository::FileCharacterRepository;
+    use crate::infrastructure::repositories::file_chat_repository::FileChatRepository;
+
+    struct NoActiveAgentRuns;
+
+    #[async_trait]
+    impl AgentRunActivity for NoActiveAgentRuns {
+        async fn active_run_ids_for_workspace(
+            &self,
+            _workspace_id: &str,
+        ) -> Result<Vec<String>, ApplicationError> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn unique_temp_root() -> PathBuf {
+        std::env::temp_dir().join(format!("tauritavern-chat-service-{}", random::<u64>()))
+    }
+
+    async fn build_test_chat_service() -> ChatService {
+        let root = unique_temp_root();
+        fs::create_dir_all(root.join("characters"))
+            .await
+            .expect("create characters dir");
+        fs::create_dir_all(root.join("chats"))
+            .await
+            .expect("create chats dir");
+
+        let chat_repository = Arc::new(FileChatRepository::new(
+            root.join("characters"),
+            root.join("chats"),
+            root.join("group_chats"),
+            root.join("backups"),
+        ));
+        let character_repository = Arc::new(FileCharacterRepository::new(
+            root.join("characters"),
+            root.join("chats"),
+            root.join("thumbnails/avatar"),
+            root.join("default.png"),
+        ));
+        let agent_workspace_lifecycle_service = Arc::new(AgentWorkspaceLifecycleService::new(
+            Arc::new(FileAgentRepository::new(
+                root.join("_tauritavern/agent-workspaces"),
+            )),
+            Arc::new(NoActiveAgentRuns),
+        ));
+
+        ChatService::new(
+            chat_repository,
+            character_repository,
+            agent_workspace_lifecycle_service,
+        )
+    }
+
+    #[tokio::test]
+    async fn backfill_chat_identity_stamps_all_unstamped_and_persists() {
+        let service = build_test_chat_service().await;
+        let mut chat = Chat::new("user", "Bot");
+        chat.file_name = Some("Bot - test".to_string());
+        chat.add_message(ChatMessage::user("user", "hello"));
+        chat.add_message(ChatMessage::character("Bot", "hi"));
+        service.chat_repository.save(&chat).await.unwrap();
+
+        let stamped = service
+            .backfill_chat_identity("Bot", "Bot - test")
+            .await
+            .unwrap();
+        assert_eq!(stamped, 2);
+
+        let reloaded = service
+            .chat_repository
+            .get_chat("Bot", "Bot - test")
+            .await
+            .unwrap();
+        for m in &reloaded.messages {
+            assert!(m
+                .extra
+                .tauritavern
+                .as_ref()
+                .and_then(|t| t.msg_id.as_ref())
+                .is_some());
+        }
+
+        let again = service
+            .backfill_chat_identity("Bot", "Bot - test")
+            .await
+            .unwrap();
+        assert_eq!(again, 0);
+    }
 }
