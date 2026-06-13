@@ -21,6 +21,7 @@ pub mod lan_sync;
 pub mod logging;
 #[cfg(target_os = "macos")]
 pub mod macos_webview;
+pub mod memory;
 pub mod paths;
 pub mod persistence;
 pub mod preset_file_naming;

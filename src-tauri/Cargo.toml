@@ -68,6 +68,7 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rustls = "0.23"
 webpki-roots = "1"
 dunce = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # TT-Sync v2 shared contract/scope (crates.io)
 ttsync-contract = "~1.0.0"

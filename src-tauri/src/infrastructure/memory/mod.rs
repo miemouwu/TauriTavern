@@ -1,0 +1,120 @@
+use std::path::Path;
+use std::sync::Mutex;
+
+use rusqlite::Connection;
+
+pub const MEMORY_SCHEMA_VERSION: i64 = 1;
+
+const SCHEMA_SQL: &str = include_str!("schema.sql");
+
+#[derive(Debug)]
+pub enum MemoryError {
+    Sqlite(rusqlite::Error),
+    VersionConflict { expected: i64, actual: i64 },
+}
+impl From<rusqlite::Error> for MemoryError {
+    fn from(e: rusqlite::Error) -> Self {
+        MemoryError::Sqlite(e)
+    }
+}
+pub type MemoryResult<T> = Result<T, MemoryError>;
+
+pub struct MemoryStore {
+    conn: Mutex<Connection>,
+}
+
+impl MemoryStore {
+    pub fn open(path: &Path) -> MemoryResult<Self> {
+        Self::init(Connection::open(path)?)
+    }
+    pub fn open_in_memory() -> MemoryResult<Self> {
+        Self::init(Connection::open_in_memory()?)
+    }
+
+    fn init(conn: Connection) -> MemoryResult<Self> {
+        let _ = conn.pragma_update(None, "journal_mode", "WAL"); // no-op for in-memory
+        conn.execute_batch(SCHEMA_SQL)?;
+        conn.execute(
+            "INSERT INTO meta(k,v) VALUES('schema_version',?1) ON CONFLICT(k) DO NOTHING",
+            rusqlite::params![MEMORY_SCHEMA_VERSION.to_string()],
+        )?;
+        conn.execute(
+            "INSERT INTO meta(k,v) VALUES('watermark','0') ON CONFLICT(k) DO NOTHING",
+            [],
+        )?;
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
+    }
+
+    pub fn table_exists(&self, name: &str) -> MemoryResult<bool> {
+        let conn = self.conn.lock().unwrap();
+        let n: i64 = conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name=?1 AND type IN ('table','view')",
+            rusqlite::params![name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+    pub fn schema_version(&self) -> MemoryResult<i64> {
+        Ok(self
+            .meta_get("schema_version")?
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or(0))
+    }
+    pub fn watermark(&self) -> MemoryResult<i64> {
+        Ok(self
+            .meta_get("watermark")?
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or(0))
+    }
+    pub fn set_watermark(&self, n: i64) -> MemoryResult<()> {
+        self.meta_set("watermark", &n.to_string())
+    }
+
+    fn meta_get(&self, k: &str) -> MemoryResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn
+            .query_row(
+                "SELECT v FROM meta WHERE k=?1",
+                rusqlite::params![k],
+                |r| r.get::<_, String>(0),
+            )
+            .ok())
+    }
+    fn meta_set(&self, k: &str, v: &str) -> MemoryResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO meta(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=?2",
+            rusqlite::params![k, v],
+        )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn open_in_memory_migrates_schema_and_sets_version() {
+        let store = MemoryStore::open_in_memory().unwrap();
+        for t in [
+            "meta",
+            "entities",
+            "timeline",
+            "threads",
+            "state",
+            "plan",
+            "overrides",
+            "message_index",
+            "entities_fts",
+            "timeline_fts",
+        ] {
+            assert!(store.table_exists(t).unwrap(), "missing table {t}");
+        }
+        assert_eq!(store.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
+        assert_eq!(store.watermark().unwrap(), 0);
+    }
+}
