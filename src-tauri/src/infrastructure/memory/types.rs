@@ -15,3 +15,17 @@ pub struct Entity {
     pub source_refs: Value,
     pub version: i64,
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TimelineEvent {
+    pub event_id: String,
+    pub narration_order: i64,
+    pub diegetic_seq: i64,
+    pub story_time_label: String,
+    pub frame: String,
+    pub status: String,
+    pub summary: String,
+    pub participants: Vec<String>,
+    pub notable_absent: Vec<String>,
+    pub source_refs: serde_json::Value,
+}

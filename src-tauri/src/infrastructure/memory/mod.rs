@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 
 pub mod entities;
+pub mod timeline;
 pub mod types;
 
 pub const MEMORY_SCHEMA_VERSION: i64 = 1;
@@ -107,6 +108,7 @@ impl MemoryStore {
 #[cfg(test)]
 mod tests {
     use super::types::Entity;
+    use super::types::TimelineEvent;
     use super::*;
 
     #[test]
@@ -133,6 +135,31 @@ mod tests {
         ));
         let v2 = s.upsert_entity(&e, Some(1)).unwrap(); // correct version bumps
         assert_eq!(v2, 2);
+    }
+
+    #[test]
+    fn timeline_insert_is_idempotent_and_range_sorts_by_diegetic_seq() {
+        let s = MemoryStore::open_in_memory().unwrap();
+        let ev = |id: &str, seq: i64, sum: &str| TimelineEvent {
+            event_id: id.into(),
+            diegetic_seq: seq,
+            summary: sum.into(),
+            ..Default::default()
+        };
+        assert!(s
+            .insert_timeline_event(&ev("e2", 138, "顾远向林安安表白"))
+            .unwrap());
+        assert!(s.insert_timeline_event(&ev("e1", 100, "序章")).unwrap());
+        assert!(
+            !s.insert_timeline_event(&ev("e2", 138, "dup")).unwrap(),
+            "same event_id is a no-op"
+        );
+        let range = s.timeline_range(0, 200).unwrap();
+        assert_eq!(
+            range.iter().map(|e| e.event_id.as_str()).collect::<Vec<_>>(),
+            vec!["e1", "e2"]
+        );
+        assert_eq!(s.timeline_range(120, 200).unwrap().len(), 1);
     }
 
     #[test]
