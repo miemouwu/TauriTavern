@@ -1,6 +1,9 @@
 use super::agent::{agent_await_spec, agent_delegate_spec, agent_list_spec, task_return_spec};
 use super::chat::{chat_read_messages_spec, chat_search_spec};
 use super::dice::dice_roll_spec;
+use super::memory::{
+    memory_propose_spec, memory_read_spec, memory_search_spec, memory_timeline_spec,
+};
 use super::skill::{SKILL_READ, skill_list_spec, skill_read_spec, skill_search_spec};
 use super::workspace::{
     WORKSPACE_APPLY_PATCH, WORKSPACE_COMMIT, WORKSPACE_FINISH, WORKSPACE_LIST_FILES,
@@ -31,6 +34,10 @@ impl BuiltinAgentToolRegistry {
                 chat_read_messages_spec(),
                 worldinfo_read_activated_spec(),
                 dice_roll_spec(),
+                memory_search_spec(),
+                memory_read_spec(),
+                memory_timeline_spec(),
+                memory_propose_spec(),
                 skill_list_spec(),
                 skill_search_spec(),
                 skill_read_spec(),
@@ -409,6 +416,40 @@ mod tests {
                 .find(|spec| spec.name == WORKSPACE_FINISH)
                 .map(|spec| spec.name.as_str()),
             Some(WORKSPACE_FINISH)
+        );
+    }
+
+    #[test]
+    fn registry_registers_memory_tools_with_safe_model_names() {
+        let registry = BuiltinAgentToolRegistry::phase2c();
+        let tools = registry.specs();
+        for (name, model_name) in [
+            ("memory.search", "memory_search"),
+            ("memory.read", "memory_read"),
+            ("memory.timeline", "memory_timeline"),
+            ("memory.propose", "memory_propose"),
+        ] {
+            let spec = tools
+                .iter()
+                .find(|spec| spec.name == name)
+                .unwrap_or_else(|| panic!("missing spec {name}"));
+            assert_eq!(spec.model_name, model_name, "model_name for {name}");
+            assert!(
+                spec.input_schema.get("properties").is_some(),
+                "{name} must define an input schema"
+            );
+        }
+        // memory.propose requires kind + data.
+        let propose = tools
+            .iter()
+            .find(|spec| spec.name == "memory.propose")
+            .expect("memory.propose spec");
+        assert_eq!(
+            propose
+                .input_schema
+                .pointer("/required")
+                .expect("memory.propose required"),
+            &serde_json::json!(["kind", "data"])
         );
     }
 

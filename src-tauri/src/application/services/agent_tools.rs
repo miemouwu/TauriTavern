@@ -3,6 +3,7 @@ mod chat;
 mod common;
 mod dice;
 mod dispatcher;
+mod memory;
 mod registry;
 mod session;
 mod skill;
