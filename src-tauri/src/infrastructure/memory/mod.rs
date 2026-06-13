@@ -6,9 +6,13 @@ use rusqlite::Connection;
 
 pub mod entities;
 pub mod index;
+pub mod provider;
 pub mod search;
 pub mod timeline;
 pub mod types;
+
+#[allow(unused_imports)] // re-export wired into agent tools later in P2b
+pub use provider::MemoryStoreProvider;
 
 pub const MEMORY_SCHEMA_VERSION: i64 = 1;
 
