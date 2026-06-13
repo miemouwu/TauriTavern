@@ -19,6 +19,11 @@ pub(crate) fn encode_chat_completion_request(
     provider_state::apply_provider_state_to_payload(&mut payload, request, adapter)?;
 
     let request_messages = adapter.messages_for_request(request)?;
+    // P1: keep reasoning_content only on the most-recent assistant turn (clears all older rounds'
+    // reasoning to stop prompt bloat). This is intentionally narrower than the design's tail_len
+    // window; a fixed-watermark tail (which is actually prefix-cache-stable) lands in P3 with the
+    // watermark machinery. The encode path is provider-agnostic (not DeepSeek-only); downstream
+    // native builders ignore reasoning_content for providers that don't use it.
     let last_assistant_index = request_messages
         .iter()
         .rposition(|message| message.role == AgentModelRole::Assistant);

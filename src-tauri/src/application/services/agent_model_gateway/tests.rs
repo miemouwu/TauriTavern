@@ -719,37 +719,142 @@ fn reasoning_content_kept_when_single_assistant() {
 }
 
 #[test]
-fn render_openai_tools_is_byte_stable_for_unchanged_tools() {
-    let tools = vec![AgentToolSpec {
-        name: "workspace_write_file".to_string(),
-        model_name: "workspace_write_file".to_string(),
-        title: "Write file".to_string(),
-        description: "Write a file".to_string(),
-        input_schema: json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string" },
-                "content": { "type": "string" }
+fn older_assistant_keeps_tool_calls_but_loses_reasoning_with_trailing_tool() {
+    let assistant_with_reasoning_and_call = |reason: &str, call_id: &str| AgentModelMessage {
+        role: AgentModelRole::Assistant,
+        parts: vec![
+            AgentModelContentPart::Reasoning {
+                text: Some(reason.to_string()),
+                provider_metadata: Value::Null,
             },
-            "required": ["path", "content"]
-        }),
-        output_schema: None,
-        annotations: Value::Null,
-        source: "builtin".to_string(),
-    }];
-    let render_once = || {
+            AgentModelContentPart::ToolCall {
+                call: AgentToolCall {
+                    id: call_id.to_string(),
+                    name: "workspace_write_file".to_string(),
+                    arguments: json!({"path":"a"}),
+                    provider_metadata: Value::Null,
+                },
+            },
+        ],
+        provider_metadata: Value::Null,
+    };
+    // realistic agent loop tail: ... assistant(call_1) -> tool(res_1) -> assistant(call_2) -> tool(res_2)
+    let request = basic_request(
+        "openai",
+        None,
+        vec![
+            text_message(AgentModelRole::User, "go"),
+            assistant_with_reasoning_and_call("old reasoning", "call_1"),
+            tool_result_message("call_1", "workspace_write_file", "ok1"),
+            assistant_with_reasoning_and_call("recent reasoning", "call_2"),
+            tool_result_message("call_2", "workspace_write_file", "ok2"),
+        ],
+    );
+    let dto = encode_chat_completion_request(&request).unwrap();
+    let messages = dto.payload.get("messages").unwrap().as_array().unwrap();
+    let assistants: Vec<&Value> = messages
+        .iter()
+        .filter(|m| m["role"] == "assistant")
+        .collect();
+    assert_eq!(assistants.len(), 2);
+    // older assistant: reasoning cleared, BUT tool_calls preserved (pairing intact)
+    assert!(assistants[0].get("reasoning_content").is_none());
+    assert_eq!(assistants[0]["tool_calls"][0]["id"], json!("call_1"));
+    // most recent assistant (NOT the last message — a Tool message is) keeps reasoning + its tool_call
+    assert_eq!(
+        assistants[1]
+            .get("reasoning_content")
+            .and_then(|v| v.as_str()),
+        Some("recent reasoning")
+    );
+    assert_eq!(assistants[1]["tool_calls"][0]["id"], json!("call_2"));
+    // both tool results still present and paired
+    let tool_ids: Vec<&Value> = messages
+        .iter()
+        .filter(|m| m["role"] == "tool")
+        .map(|m| &m["tool_call_id"])
+        .collect();
+    assert_eq!(tool_ids, vec![&json!("call_1"), &json!("call_2")]);
+}
+
+#[test]
+fn multi_round_keeps_reasoning_only_on_final_assistant() {
+    let a = |r: &str| AgentModelMessage {
+        role: AgentModelRole::Assistant,
+        parts: vec![
+            AgentModelContentPart::Reasoning {
+                text: Some(r.to_string()),
+                provider_metadata: Value::Null,
+            },
+            AgentModelContentPart::Text {
+                text: "...".to_string(),
+            },
+        ],
+        provider_metadata: Value::Null,
+    };
+    let request = basic_request(
+        "openai",
+        None,
+        vec![
+            text_message(AgentModelRole::User, "1"),
+            a("r1"),
+            text_message(AgentModelRole::User, "2"),
+            a("r2"),
+            text_message(AgentModelRole::User, "3"),
+            a("r3"),
+        ],
+    );
+    let dto = encode_chat_completion_request(&request).unwrap();
+    let reasonings: Vec<Option<&str>> = dto.payload["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["role"] == "assistant")
+        .map(|m| m.get("reasoning_content").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(reasonings, vec![None, None, Some("r3")]);
+}
+
+#[test]
+fn render_openai_tools_is_byte_stable_across_key_insertion_order() {
+    // AgentToolSpec does not derive Default, so build it the long way and keep every
+    // field equal between the two specs except `input_schema` (whose key order differs).
+    fn spec(schema: Value) -> AgentToolSpec {
+        AgentToolSpec {
+            name: "t".to_string(),
+            model_name: "t".to_string(),
+            title: "t".to_string(),
+            description: "d".to_string(),
+            input_schema: schema,
+            output_schema: None,
+            annotations: Value::Null,
+            source: "builtin".to_string(),
+        }
+    }
+    let mut order_a = serde_json::Map::new();
+    order_a.insert("type".into(), json!("object"));
+    order_a.insert(
+        "properties".into(),
+        json!({"path":{"type":"string"},"content":{"type":"string"}}),
+    );
+    let mut order_b = serde_json::Map::new();
+    order_b.insert(
+        "properties".into(),
+        json!({"content":{"type":"string"},"path":{"type":"string"}}),
+    );
+    order_b.insert("type".into(), json!("object"));
+
+    let render = |s| {
         serde_json::to_string(&render_openai_tools(
-            &tools,
+            &vec![spec(s)],
             AgentProviderAdapter::OpenAiCompatible,
         ))
         .unwrap()
     };
-    assert_eq!(
-        render_once(),
-        render_once(),
-        "unchanged tools must render byte-identical (stable fingerprint)"
-    );
-    assert!(render_once().contains("workspace_write_file"));
+    // Equal content built in different key order must serialize identically (canonical /
+    // sorted keys). This would FAIL if serde_json preserve_order were ever enabled — i.e.
+    // it guards #75.4.
+    assert_eq!(render(Value::Object(order_a)), render(Value::Object(order_b)));
 }
 
 fn assert_gemini_required_shape(schema: &Value, root: bool, context: &str) {
