@@ -89,6 +89,7 @@ use crate::infrastructure::http_client_pool::HttpClientPool;
 use crate::infrastructure::logging::llm_api_logs::{
     LlmApiLogStore, LoggingChatCompletionRepository,
 };
+use crate::infrastructure::memory::MemoryStoreProvider;
 use crate::infrastructure::persistence::file_system::DataDirectory;
 use crate::infrastructure::repositories::file_agent_profile_repository::FileAgentProfileRepository;
 use crate::infrastructure::repositories::file_agent_repository::FileAgentRepository;
@@ -271,6 +272,12 @@ pub(super) async fn build_services(
         repositories.secret_repository.clone(),
         ios_policy.clone(),
     ));
+    let memory_provider = Arc::new(MemoryStoreProvider::new(
+        data_directory
+            .root()
+            .join("_tauritavern")
+            .join("agent-memory"),
+    ));
     let agent_runtime_service = Arc::new(AgentRuntimeService::new_with_prompt_assembly_service(
         repositories.agent_run_repository.clone(),
         repositories.agent_invocation_repository.clone(),
@@ -284,6 +291,7 @@ pub(super) async fn build_services(
         )),
         agent_profile_service.clone(),
         llm_connection_service.clone(),
+        memory_provider,
         prompt_assembly_service.clone(),
     ));
     let agent_workspace_lifecycle_service = Arc::new(AgentWorkspaceLifecycleService::new(

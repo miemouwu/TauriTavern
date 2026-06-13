@@ -24,6 +24,7 @@ use crate::domain::repositories::chat_repository::ChatRepository;
 use crate::domain::repositories::checkpoint_repository::CheckpointRepository;
 use crate::domain::repositories::group_chat_repository::GroupChatRepository;
 use crate::domain::repositories::workspace_repository::WorkspaceRepository;
+use crate::infrastructure::memory::MemoryStoreProvider;
 
 mod artifacts;
 mod commit;
@@ -114,6 +115,7 @@ impl AgentRuntimeService {
         model_gateway: Arc<dyn AgentModelGateway>,
         profile_service: Arc<AgentProfileService>,
         llm_connection_service: Arc<LlmConnectionService>,
+        memory_provider: Arc<MemoryStoreProvider>,
     ) -> Self {
         Self::new_internal(
             run_repository,
@@ -126,6 +128,7 @@ impl AgentRuntimeService {
             model_gateway,
             profile_service,
             llm_connection_service,
+            memory_provider,
             None,
         )
     }
@@ -141,6 +144,7 @@ impl AgentRuntimeService {
         model_gateway: Arc<dyn AgentModelGateway>,
         profile_service: Arc<AgentProfileService>,
         llm_connection_service: Arc<LlmConnectionService>,
+        memory_provider: Arc<MemoryStoreProvider>,
         prompt_assembly_service: Arc<PromptAssemblyService>,
     ) -> Self {
         Self::new_internal(
@@ -154,6 +158,7 @@ impl AgentRuntimeService {
             model_gateway,
             profile_service,
             llm_connection_service,
+            memory_provider,
             Some(prompt_assembly_service),
         )
     }
@@ -169,6 +174,7 @@ impl AgentRuntimeService {
         model_gateway: Arc<dyn AgentModelGateway>,
         profile_service: Arc<AgentProfileService>,
         llm_connection_service: Arc<LlmConnectionService>,
+        memory_provider: Arc<MemoryStoreProvider>,
         prompt_assembly_service: Option<Arc<PromptAssemblyService>>,
     ) -> Self {
         let tool_registry = BuiltinAgentToolRegistry::phase2c();
@@ -178,6 +184,7 @@ impl AgentRuntimeService {
             group_chat_repository.clone(),
             workspace_repository.clone(),
             skill_service.clone(),
+            memory_provider,
         );
         Self {
             run_repository,

@@ -102,6 +102,7 @@ async fn resolves_agent_system_prompt_through_runtime_boundary() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
 
     let prompt = service
@@ -135,6 +136,7 @@ async fn agent_list_returns_callable_profiles_allowed_by_delegation_policy() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         profile_service.clone(),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
 
     let mut callable = profile_service
@@ -575,6 +577,7 @@ async fn agent_loop_inner_resolves_root_character_scoped_skills() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let run = AgentRun {
         id: "run_root_character_skill_test".to_string(),
@@ -841,6 +844,7 @@ async fn subagent_current_prompt_snapshot_reads_ambient_preset_and_character_ski
         model_gateway,
         profile_service.clone(),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     profile_service
         .save_profile(child_profile, service.tool_specs())
@@ -1152,6 +1156,7 @@ async fn agent_delegate_await_runs_return_mode_subagent() {
         model_gateway,
         profile_service.clone(),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     profile_service
         .save_profile(child_profile, service.tool_specs())
@@ -1500,6 +1505,7 @@ async fn child_ref_profile_prompt_assembly_round_trips_through_host_bridge() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         profile_service.clone(),
         llm_connection_service,
+        test_memory_provider(),
         prompt_assembly_service,
     ));
     let mut child_profile = profile_service
@@ -1791,6 +1797,7 @@ async fn direct_start_rejects_subagent_only_profile() {
         Arc::new(MockAgentModelGateway::new(Vec::new())),
         profile_service.clone(),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     profile_service
         .save_profile(child_profile, service.tool_specs())
@@ -1849,6 +1856,7 @@ async fn direct_start_rejects_requires_configuration_profile() {
         Arc::new(MockAgentModelGateway::new(Vec::new())),
         profile_service.clone(),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
 
     let mut profile = profile_service
@@ -1917,6 +1925,7 @@ async fn completed_child_results_are_added_to_next_parent_turn_once() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let run = AgentRun {
         id: "run_inbox_test".to_string(),
@@ -2038,6 +2047,7 @@ async fn cancelled_child_task_does_not_emit_failed_event() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let run = AgentRun {
         id: "run_child_cancel_event_test".to_string(),
@@ -2165,6 +2175,7 @@ async fn workspace_finish_cancels_unawaited_delegated_task() {
         model_gateway.clone(),
         profile_service.clone(),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     profile_service
         .save_profile(child_profile, service.tool_specs())
@@ -2293,6 +2304,7 @@ async fn scheduler_cancels_unfinished_child_tasks_when_parent_finishes() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let run = AgentRun {
         id: "run_scheduler_cancel_test".to_string(),
@@ -2427,6 +2439,7 @@ async fn agent_loop_writes_artifact_and_completes() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -2725,6 +2738,7 @@ async fn agent_loop_explicit_read_after_append_unlocks_rewrite() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let (_cancel_sender, mut cancel_receiver) = watch::channel(false);
 
@@ -2876,6 +2890,7 @@ async fn agent_loop_stores_tool_audit_files_with_hashed_call_id_paths() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -3054,6 +3069,7 @@ async fn agent_loop_retries_retryable_model_errors() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -3162,6 +3178,7 @@ async fn agent_loop_does_not_retry_non_retryable_model_errors() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -3318,6 +3335,7 @@ async fn agent_loop_reads_and_patches_workspace_artifact() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -3456,6 +3474,7 @@ async fn finish_promotes_persistent_workspace_projection() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -3615,6 +3634,7 @@ async fn foreground_run_commits_chat_message_before_finish() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -3817,6 +3837,7 @@ async fn foreground_run_keeps_committed_chat_as_partial_success_on_tool_call_req
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -4065,6 +4086,7 @@ async fn foreground_run_recovers_from_post_commit_drift_with_nudge() {
         model_gateway.clone(),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -4289,6 +4311,7 @@ async fn foreground_run_recovers_from_no_commit_drift_with_nudge() {
         model_gateway.clone(),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -4434,6 +4457,7 @@ async fn foreground_run_without_commit_still_fails_when_drift_recovery_hits_max_
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -4602,6 +4626,7 @@ async fn foreground_run_with_commit_becomes_partial_success_when_persistent_comm
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -4785,6 +4810,7 @@ async fn foreground_finish_before_commit_returns_recoverable_error() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     ));
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -4938,6 +4964,7 @@ async fn agent_loop_returns_recoverable_tool_errors_to_model() {
         model_gateway,
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let request = ChatCompletionGenerateRequestDto {
         payload: json!({
@@ -5125,6 +5152,94 @@ async fn workspace_patch_allows_partial_read_when_old_string_was_observed() {
         .await
         .expect("read second patched artifact");
     assert_eq!(artifact.text, "hello done\nunchanged tail");
+
+    tokio::fs::remove_dir_all(root).await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn memory_propose_then_search_round_trips_through_dispatcher() {
+    let root = std::env::temp_dir().join(format!(
+        "tauritavern-agent-memory-roundtrip-{}",
+        Uuid::new_v4().simple()
+    ));
+    let repository = Arc::new(FileAgentRepository::new(root.clone()));
+    let run = AgentRun {
+        id: "run_memory_roundtrip_test".to_string(),
+        workspace_id: "chat_memory_roundtrip_test".to_string(),
+        stable_chat_id: "stable_memory_roundtrip_test".to_string(),
+        chat_ref: AgentChatRef::Character {
+            character_id: "Seraphina".to_string(),
+            file_name: "Seraphina.png".to_string(),
+        },
+        generation_type: "normal".to_string(),
+        profile_id: None,
+        skill_scope_refs: Default::default(),
+        persist_base_state_id: None,
+        input_message_count: None,
+        presentation: AgentRunPresentation::Background,
+        status: AgentRunStatus::Created,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    // The dispatcher resolves the per-chat memory store via `load_run`, so the
+    // run only needs to be persisted (no workspace materialization required).
+    repository.create_run(&run).await.expect("create run");
+    let profile = test_resolved_profile(&root).await;
+    let dispatcher = test_dispatcher(repository.clone(), &root);
+    let mut session = AgentToolSession::default();
+
+    let propose_call = AgentToolCall {
+        id: "call_memory_propose".to_string(),
+        name: "memory.propose".to_string(),
+        arguments: json!({
+            "kind": "entity",
+            "expectedVersion": 0,
+            "data": {
+                "id": "luoyunxi",
+                "name": "洛云希",
+                "confidence": "canon",
+            },
+        }),
+        provider_metadata: Value::Null,
+    };
+    let proposed = dispatcher
+        .dispatch(&run.id, &propose_call, &mut session, &profile)
+        .await
+        .expect("dispatch memory.propose");
+    assert!(
+        !proposed.result.is_error,
+        "propose should succeed: {:?}",
+        proposed.result
+    );
+    assert_eq!(proposed.result.structured["version"], 1);
+    assert!(matches!(proposed.effect, AgentToolEffect::None));
+
+    let search_call = AgentToolCall {
+        id: "call_memory_search".to_string(),
+        name: "memory.search".to_string(),
+        arguments: json!({ "query": "洛云希" }),
+        provider_metadata: Value::Null,
+    };
+    let searched = dispatcher
+        .dispatch(&run.id, &search_call, &mut session, &profile)
+        .await
+        .expect("dispatch memory.search");
+    assert!(!searched.result.is_error, "search should succeed");
+    let hits = searched.result.structured["hits"]
+        .as_array()
+        .expect("hits array");
+    assert!(
+        hits.iter().any(|hit| hit["id"] == "luoyunxi" && hit["source"] == "entity"),
+        "search must return the proposed entity, got {hits:?}"
+    );
+    assert!(
+        searched
+            .result
+            .resource_refs
+            .iter()
+            .any(|r| r == "luoyunxi"),
+        "search result should reference the entity id"
+    );
 
     tokio::fs::remove_dir_all(root).await.expect("cleanup");
 }
@@ -5778,6 +5893,7 @@ async fn dispatcher_searches_and_reads_current_chat_messages() {
         chat_repository,
         repository.clone(),
         test_skill_service(&root),
+        test_memory_provider(),
     );
     let mut session = AgentToolSession::default();
     let search_call = AgentToolCall {
@@ -5840,6 +5956,7 @@ async fn agent_input_context_excludes_swipe_target_from_history_and_persist_base
         Arc::new(MockAgentModelGateway::new(vec![])),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     save_character_payload(
         &chat_repository,
@@ -5984,6 +6101,7 @@ async fn dispatcher_chat_tools_hide_messages_after_run_input_boundary() {
         chat_repository,
         repository,
         test_skill_service(&root),
+        test_memory_provider(),
     );
     let mut session = AgentToolSession::default();
 
@@ -6167,6 +6285,7 @@ async fn dispatcher_searches_skills_and_reads_skill_ranges() {
         test_chat_repository(&root),
         repository,
         skill_service.clone(),
+        test_memory_provider(),
     );
     let mut session = AgentToolSession::new(effective_skills);
 
@@ -6268,6 +6387,7 @@ async fn dispatcher_uses_profile_skill_read_budget_above_default_fallback() {
         test_chat_repository(&root),
         repository,
         skill_service.clone(),
+        test_memory_provider(),
     );
     let mut session = AgentToolSession::new(effective_skills);
 
@@ -6506,6 +6626,7 @@ async fn child_worldinfo_reads_run_snapshot_without_exposing_input_workspace() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let run = AgentRun {
         id: "run_child_worldinfo_tool_test".to_string(),
@@ -6719,6 +6840,7 @@ async fn task_return_rejects_artifact_path_outside_child_visible_roots() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let run = AgentRun {
         id: "run_task_return_artifact_policy_test".to_string(),
@@ -6846,6 +6968,7 @@ async fn return_mode_child_write_rejects_non_writable_visible_root() {
         Arc::new(MockAgentModelGateway::new(vec![])),
         test_profile_service(&root),
         test_llm_connection_service(&root),
+        test_memory_provider(),
     );
     let run = AgentRun {
         id: "run_child_write_policy_test".to_string(),
@@ -7046,6 +7169,7 @@ fn test_dispatcher(repository: Arc<FileAgentRepository>, root: &Path) -> AgentTo
         chat_repository,
         repository,
         test_skill_service(root),
+        test_memory_provider(),
     )
 }
 
@@ -7060,6 +7184,23 @@ fn test_llm_connection_service(root: &Path) -> Arc<LlmConnectionService> {
     Arc::new(LlmConnectionService::new(Arc::new(
         FileLlmConnectionRepository::new(root.join("llm-connections")),
     )))
+}
+
+/// Per-call [`MemoryStoreProvider`] rooted in a unique temp dir so memory stores
+/// opened by the dispatcher under test never collide across tests or runs. The
+/// base dir lives outside any per-run workspace, mirroring production layout.
+fn test_memory_provider() -> Arc<crate::infrastructure::memory::MemoryStoreProvider> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let base = std::env::temp_dir().join(format!(
+        "agent-mem-test-{}-{}",
+        std::process::id(),
+        unique
+    ));
+    Arc::new(crate::infrastructure::memory::MemoryStoreProvider::new(
+        base,
+    ))
 }
 
 async fn test_resolved_profile(root: &Path) -> ResolvedAgentProfile {

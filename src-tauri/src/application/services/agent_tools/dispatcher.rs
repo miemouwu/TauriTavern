@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use super::chat;
 use super::dice;
+use super::memory;
 use super::session::AgentToolSession;
 use super::skill;
 use super::structured::{ToolErrorStructured, structured_value};
@@ -18,6 +19,7 @@ use crate::domain::repositories::agent_run_repository::AgentRunRepository;
 use crate::domain::repositories::chat_repository::ChatRepository;
 use crate::domain::repositories::group_chat_repository::GroupChatRepository;
 use crate::domain::repositories::workspace_repository::{WorkspaceFile, WorkspaceRepository};
+use crate::infrastructure::memory::{MemoryStore, MemoryStoreProvider};
 
 const RUN_PROMPT_SNAPSHOT_PATH: &str = "input/prompt_snapshot.json";
 
@@ -64,6 +66,7 @@ pub struct AgentToolDispatcher {
     group_chat_repository: Arc<dyn GroupChatRepository>,
     workspace_repository: Arc<dyn WorkspaceRepository>,
     skill_service: Arc<SkillService>,
+    memory_provider: Arc<MemoryStoreProvider>,
 }
 
 impl AgentToolDispatcher {
@@ -73,6 +76,7 @@ impl AgentToolDispatcher {
         group_chat_repository: Arc<dyn GroupChatRepository>,
         workspace_repository: Arc<dyn WorkspaceRepository>,
         skill_service: Arc<SkillService>,
+        memory_provider: Arc<MemoryStoreProvider>,
     ) -> Self {
         Self {
             run_repository,
@@ -80,7 +84,23 @@ impl AgentToolDispatcher {
             group_chat_repository,
             workspace_repository,
             skill_service,
+            memory_provider,
         }
+    }
+
+    /// Resolve the per-chat [`MemoryStore`] for a run by loading the run and
+    /// opening (or reusing) the store keyed on its `stable_chat_id`. Mirrors the
+    /// run->chat resolution used by the `chat.*` tools; the store lives outside
+    /// the per-run workspace copy so the model cannot write to it directly.
+    async fn memory_store_for(
+        &self,
+        run_id: &str,
+    ) -> Result<std::sync::Arc<MemoryStore>, ApplicationError> {
+        let run = self.run_repository.load_run(run_id).await?;
+        self.memory_provider
+            .get_or_open(&run.stable_chat_id)
+            .await
+            .map_err(|e| ApplicationError::InternalError(format!("memory store open failed: {e:?}")))
     }
 
     pub async fn dispatch(
@@ -163,6 +183,22 @@ impl AgentToolDispatcher {
                 workspace::commit(model_workspace_repository, run_id, call, profile).await?
             }
             workspace::WORKSPACE_FINISH => workspace::finish(call)?,
+            memory::MEMORY_SEARCH => {
+                let store = self.memory_store_for(run_id).await?;
+                memory::search(&store, call).await?
+            }
+            memory::MEMORY_READ => {
+                let store = self.memory_store_for(run_id).await?;
+                memory::read(&store, call).await?
+            }
+            memory::MEMORY_TIMELINE => {
+                let store = self.memory_store_for(run_id).await?;
+                memory::timeline(&store, call).await?
+            }
+            memory::MEMORY_PROPOSE => {
+                let store = self.memory_store_for(run_id).await?;
+                memory::propose(&store, call).await?
+            }
             other => {
                 let message = format!("Unknown or unavailable tool `{other}`.");
                 (
