@@ -93,6 +93,7 @@ import {
     saveGroupChatPayload,
     patchGroupChatPayloadWindowed,
 } from './chat-payload-transport.js';
+import { stampAllMessages } from './tauritavern/message-identity.js';
 import {
     buildWindowedPayloadPatch,
     clearWindowedChatState,
@@ -402,6 +403,8 @@ export async function getGroupChat(groupId, reload = false, { allowNewChat = fal
         }
         chat.splice(0, chat.length, ...data);
         chat.forEach(ensureMessageMediaIsArray);
+        // Agent Memory P0: stamp stable ids on loaded group-chat messages (backfills legacy on open).
+        stampAllMessages(chat);
         chatElement.find('.mes').remove();
         await printMessages();
         if (!isStillActive()) {
@@ -753,6 +756,8 @@ async function saveGroupChatUnsafe(groupId, shouldSaveGroup, force = false) {
         user_name: 'unused',
         character_name: 'unused',
     };
+    // Agent Memory P0: stamp stable ids on group-chat messages before persisting (backfills legacy).
+    stampAllMessages(chat);
     const payload = [chatHeader, ...chat];
     const isIntegrityTransportError = (error) =>
         String(error?.code || '').toLowerCase() === 'integrity'
