@@ -1,3 +1,7 @@
+use serde_json::{Map, Value};
+
+use crate::domain::repositories::tokenizer_repository::TokenizerRepository;
+
 /// Maximum context window (tokens) for a model id. Substring match on the model
 /// family, with a conservative fallback. Tunable (roadmap §7 lists exact values as open).
 pub fn max_context_for(model: &str) -> usize {
@@ -15,6 +19,26 @@ pub fn max_context_for(model: &str) -> usize {
     } else {
         8_192
     }
+}
+
+/// Compute the encoded-payload token budget: messages + tool schemas, vs the model window.
+/// Returns None when the model/messages are absent or the tokenizer can't count messages.
+pub fn compute_prompt_budget(
+    tokenizer: &dyn TokenizerRepository,
+    model: &str,
+    payload: &Map<String, Value>,
+) -> Option<PromptBudget> {
+    let messages = payload.get("messages")?.as_array()?;
+    let message_tokens = tokenizer.count_messages(model, messages).ok()?;
+    let tools_tokens = payload
+        .get("tools")
+        .and_then(|tools| tokenizer.encode(model, &tools.to_string()).ok())
+        .map(|ids| ids.len())
+        .unwrap_or(0);
+    Some(PromptBudget::new(
+        message_tokens + tools_tokens,
+        max_context_for(model),
+    ))
 }
 
 /// Encoded-payload token budget for one model request.

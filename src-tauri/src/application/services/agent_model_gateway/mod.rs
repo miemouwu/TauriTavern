@@ -66,14 +66,12 @@ impl AgentModelGateway for ChatCompletionAgentModelGateway {
         cancel: watch::Receiver<bool>,
     ) -> Result<AgentModelExchange, ApplicationError> {
         let dto = encode::encode_chat_completion_request(&request)?;
-        // Agent Memory P0: measure the encoded provider payload against the model's window.
-        if let (Some(model), Some(messages)) = (
-            dto.payload.get("model").and_then(|v| v.as_str()),
-            dto.payload.get("messages").and_then(|v| v.as_array()),
-        ) {
-            if let Ok(tokens) = self.tokenizer.count_messages(model, messages) {
-                let budget =
-                    model_context::PromptBudget::new(tokens, model_context::max_context_for(model));
+        // Agent Memory P0: measure the encoded provider payload (messages + tool
+        // schemas) against the model's window.
+        if let Some(model) = dto.payload.get("model").and_then(|v| v.as_str()) {
+            if let Some(budget) =
+                model_context::compute_prompt_budget(self.tokenizer.as_ref(), model, &dto.payload)
+            {
                 logger::debug(&format!(
                     "agent prompt budget: model={} tokens={} max={} ratio={:.3}",
                     model, budget.tokens, budget.max_context, budget.ratio
