@@ -18,13 +18,25 @@ pub(crate) fn encode_chat_completion_request(
     let mut payload = request.payload.clone();
     provider_state::apply_provider_state_to_payload(&mut payload, request, adapter)?;
 
+    let request_messages = adapter.messages_for_request(request)?;
+    let last_assistant_index = request_messages
+        .iter()
+        .rposition(|message| message.role == AgentModelRole::Assistant);
     payload.insert(
         "messages".to_string(),
         Value::Array(
-            adapter
-                .messages_for_request(request)?
-                .into_iter()
-                .map(|message| encode_openai_compatible_message(message, &request.tools, adapter))
+            request_messages
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, message)| {
+                    encode_openai_compatible_message(
+                        message,
+                        &request.tools,
+                        adapter,
+                        Some(index) == last_assistant_index,
+                    )
+                })
                 .collect::<Result<Vec<_>, _>>()?,
         ),
     );
@@ -57,6 +69,7 @@ fn encode_openai_compatible_message(
     message: &AgentModelMessage,
     tools: &[AgentToolSpec],
     adapter: AgentProviderAdapter,
+    keep_reasoning: bool,
 ) -> Result<Value, ApplicationError> {
     let mut object = Map::new();
     object.insert(
@@ -127,7 +140,9 @@ fn encode_openai_compatible_message(
     }
 
     copy_native_continuation(&mut object, &message.parts, adapter);
-    copy_reasoning_content(&mut object, &message.parts);
+    if keep_reasoning {
+        copy_reasoning_content(&mut object, &message.parts);
+    }
 
     Ok(Value::Object(object))
 }

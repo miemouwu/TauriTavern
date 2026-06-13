@@ -11,7 +11,7 @@ use crate::application::services::chat_completion_service::exchange::{
 };
 use crate::domain::models::agent::{
     AgentModelContentPart, AgentModelMessage, AgentModelRequest, AgentModelRole, AgentToolCall,
-    AgentToolResult,
+    AgentToolResult, AgentToolSpec,
 };
 use crate::domain::repositories::chat_completion_repository::{
     CHAT_COMPLETION_PROVIDER_STATE_FIELD, ChatCompletionNormalizationReport, ChatCompletionSource,
@@ -638,6 +638,118 @@ fn same_provider_keeps_matching_private_native_metadata() {
     let dto = encode_chat_completion_request(&request).unwrap();
     let native = dto.payload["messages"][0]["native"].as_object().unwrap();
     assert!(native.get("claude").is_some());
+}
+
+#[test]
+fn reasoning_content_is_kept_only_on_the_last_assistant_message() {
+    let assistant_with_reasoning = |reason: &str, answer: &str| AgentModelMessage {
+        role: AgentModelRole::Assistant,
+        parts: vec![
+            AgentModelContentPart::Reasoning {
+                text: Some(reason.to_string()),
+                provider_metadata: Value::Null,
+            },
+            AgentModelContentPart::Text {
+                text: answer.to_string(),
+            },
+        ],
+        provider_metadata: Value::Null,
+    };
+    let request = basic_request(
+        "openai",
+        None,
+        vec![
+            text_message(AgentModelRole::User, "hi"),
+            assistant_with_reasoning("old thinking", "first answer"),
+            text_message(AgentModelRole::User, "more"),
+            assistant_with_reasoning("recent thinking", "second answer"),
+        ],
+    );
+    let dto = encode_chat_completion_request(&request).unwrap();
+    let messages = dto.payload.get("messages").unwrap().as_array().unwrap();
+    let assistants: Vec<&Value> = messages
+        .iter()
+        .filter(|m| m["role"] == "assistant")
+        .collect();
+    assert_eq!(assistants.len(), 2);
+    assert!(
+        assistants[0].get("reasoning_content").is_none(),
+        "older assistant reasoning must be cleared"
+    );
+    assert_eq!(
+        assistants[1]
+            .get("reasoning_content")
+            .and_then(|v| v.as_str()),
+        Some("recent thinking")
+    );
+}
+
+#[test]
+fn reasoning_content_kept_when_single_assistant() {
+    let request = basic_request(
+        "openai",
+        None,
+        vec![
+            text_message(AgentModelRole::User, "hi"),
+            AgentModelMessage {
+                role: AgentModelRole::Assistant,
+                parts: vec![
+                    AgentModelContentPart::Reasoning {
+                        text: Some("thinking".to_string()),
+                        provider_metadata: Value::Null,
+                    },
+                    AgentModelContentPart::Text {
+                        text: "answer".to_string(),
+                    },
+                ],
+                provider_metadata: Value::Null,
+            },
+        ],
+    );
+    let dto = encode_chat_completion_request(&request).unwrap();
+    let messages = dto.payload.get("messages").unwrap().as_array().unwrap();
+    let assistant = messages
+        .iter()
+        .find(|m| m["role"] == "assistant")
+        .unwrap();
+    assert_eq!(
+        assistant.get("reasoning_content").and_then(|v| v.as_str()),
+        Some("thinking")
+    );
+}
+
+#[test]
+fn render_openai_tools_is_byte_stable_for_unchanged_tools() {
+    let tools = vec![AgentToolSpec {
+        name: "workspace_write_file".to_string(),
+        model_name: "workspace_write_file".to_string(),
+        title: "Write file".to_string(),
+        description: "Write a file".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" },
+                "content": { "type": "string" }
+            },
+            "required": ["path", "content"]
+        }),
+        output_schema: None,
+        annotations: Value::Null,
+        source: "builtin".to_string(),
+    }];
+    let render_once = || {
+        serde_json::to_string(&render_openai_tools(
+            &tools,
+            AgentProviderAdapter::OpenAiCompatible,
+        ))
+        .unwrap()
+    };
+    assert_eq!(
+        render_once(),
+        render_once(),
+        "unchanged tools must render byte-identical (stable fingerprint)"
+    );
+    assert!(render_once().contains("workspace_write_file"));
 }
 
 fn assert_gemini_required_shape(schema: &Value, root: bool, context: &str) {
