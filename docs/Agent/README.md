@@ -15,6 +15,7 @@
 | [ProfilesAndPreset.md](ProfilesAndPreset.md) | Agent Profile、Preset agent schema、ContextFrame、Plan Policy |
 | [PromptAssembly.md](PromptAssembly.md) | Agent 独立 Preset / 独立 Model、FrozenRunInputSnapshot 与前后端 prompt assembly 链路 |
 | [MemoryCompaction.md](MemoryCompaction.md) | Memory 派生索引、provenance、时间锚、三档节奏、验证闸与纠错、rebuild |
+| [MemoryImplementationRoadmap.md](MemoryImplementationRoadmap.md) | MemoryCompaction 的 P0–P3 实现路线图、跨切面决策、Memory 用 SQLite 的分歧 |
 | [ToolSystem.md](ToolSystem.md) | ToolSpec、ToolResult、Tool Registry、Policy、审批与 Legacy ToolManager 边界 |
 | [SubAgent.md](SubAgent.md) | return-mode SubAgent、AgentInvocation / AgentTask、shared workspace 语义与开发定位 |
 | [LlmGateway.md](LlmGateway.md) | provider-agnostic LLM gateway 与现有 `ChatCompletionService` 的复用边界 |
