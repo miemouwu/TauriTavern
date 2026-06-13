@@ -30,9 +30,9 @@ v3 §10 复用 `summary.rs` 的 per-file Bloom + 新写每行 trigram 指纹做�
 - **`timeline(range)`**:`diegetic_seq` B-tree 范围查询,取代 grep JSONL。
 - **§9 原子合并**:多表 delta 写 + 推进水位线 = **单事务**(ACID),取代「staging + rename」。
 - **§15 条目级 CAS**:`UPDATE … WHERE version = ?`,取代手写 read-before-write。
-- **依赖(全新,未验)**:`rusqlite`(`bundled` + FTS5)。移动端 SQLite 原生理论理想,但**本仓无任何 sqlite 依赖**,bundled+FTS5 在 Tauri **Android/iOS** 真能编需 spike 验证(§7)。
+- **依赖(macOS 已验)**:`rusqlite 0.40`(`bundled`,SQLite 3.53.2)—— FTS5 `trigram` CJK 子串 + 多表单事务在 mac host 实测通过(spike,§7)。**本仓原无 sqlite 依赖**;移动端(Android/iOS)编译**本轮未验**(只做 mac)。
 - **事实层不变**:chat 仍 JSONL → 仍满足 I2「memory = derive(chat),可重建」(rebuild = drop tables + 重派生)。
-- **持久化集成(⚠️ make-or-break,提前 spike,见 §7)**:persist 拷贝是**盲目目录文件遍历**(`fs_tree.rs:31` `copy_directory_contents`)、每 run 拷入/拷出 + 不可变快照。塞活 `.db` 两个雷:(a) **WAL 一致性**——`.db`/`-wal`/`-shm` 被盲拷会损坏/陈旧,**须用 SQLite backup API / `VACUUM INTO` 产干净快照**,非盲拷活库;(b) **二进制增长**——增长的 `.db` 每 run 全量拷 + 每快照各存一份,比 JSONL 更难 dedup。A(库在 run root 内快照)vs B(库在 per-run 拷贝外、自身事务+journal,rollback 靠 rebuild)是真分叉,**P2 开工前 spike 定**。
+- **持久化集成(spike 已定 → B-hybrid,见 §7)**:persist 是**盲目录遍历拷贝**(`fs_tree.rs:31` `copy_directory_contents`)。spike 确认活 WAL `.db` 盲拷不可用(数据在 `-wal`),**须 `VACUUM INTO` 产干净快照**。决策:`memory.db` 置于 per-run 盲拷**之外**,仅在合并/compaction 提交点 `VACUUM INTO` 打快照(粗回滚锚点);run 内回滚靠幂等水位线重处理 + 完整性校验,`rebuild` 兜底。
 - **透明度代价**:`.db` 非 git-diff → 加 `memory.export`(dump 成 JSON)缓解。
 
 ## 2. P0 — 消息身份 + token 估算(先做)
@@ -93,8 +93,13 @@ stamp 幂等;未知字段 round-trip 保留;`contentSha` 稳定 / 改 `mes` 即�
 
 ## 7. 风险与待定
 
-- **memory.db × per-run 快照/rollback(提前 spike,非 P2 定稿)**:persist 是盲目录拷贝,活 `.db` 盲拷会损坏。**A**(run root 内快照,须 backup-API/`VACUUM INTO` + 写静默,回滚干净)vs **B**(库在 per-run 拷贝外,自身事务+journal 持久,rollback 靠 `rebuild`,避开每 run 拷增长二进制)。对会增长的 authoritative 索引,**评审倾向 B**(别每 run 拷大二进制);路线图原倾向 A。**spike 内容**:①验证 rusqlite `bundled`+FTS5 在 Tauri Android/iOS 真能编;②实测 `.db` 增长/拷贝成本 → 再定 A/B。
+- **memory.db × per-run 快照/rollback —— spike 已做(2026-06-13,macOS host),结论:SQLite GO,采用 B-hybrid。**
+  - (i) **通过**:`rusqlite 0.40 bundled`(SQLite 3.53.2)→ FTS5 `trigram` CJK 子串(含 mid-string)+ 多表单事务原子提交/回滚,全 PASS。
+  - (ii) **风险确认**:WAL 下盲拷主 `.db` 不可用(schema+数据在 `-wal`)→ persist 盲目录拷贝**绝不能**直拷活 `memory.db`;**须 `VACUUM INTO`**(实测 1ms、`integrity_check=ok`、干净单文件)。
+  - (iii) **成本**(5000 timeline + 1000 entities):`.db`(含 FTS5 索引)2.7MB ≈ 2× JSONL(1.3MB);拷贝时间可忽略(盲拷 5.4ms / `VACUUM INTO` 7.3ms)→ 拷**时间**非瓶颈,2× 体积随每快照累积是真成本。
+  - **决策 → B-hybrid**:`memory.db` 在 per-run 盲拷**之外**(自身 WAL 持久),仅在**合并/compaction 提交点** `VACUUM INTO` 快照;run 内回滚靠幂等水位线重处理 + 完整性校验,`rebuild` 兜底(合 §9)。
+  - **残留**:移动端(Android/iOS)编译未验(本轮只 mac);连接/线程模型(rusqlite `Connection` 非跨线程 → P2 用小连接池)= P2 实现细节;spike crate 在 `~/tauritavern-spikes/sqlite-persist-spike`(repo 外,可删)。
 - **`max_context` 具体数值**:各 model family 待填官方/实测值;fallback 取保守(如 8k)。
 - **tail_len 群聊**:多条尾部可 swipe → 群聊按可 swipe 深度调高。
-- **每 run 全量拷 `memory.db` 成本**(§16/N4):大库时评估差量;本轮先全拷,GC/差量留 P5。
+- **~~每 run 全量拷 `memory.db`~~**(§16/N4):已由 B-hybrid 化解 —— 不每 run 拷,只在合并/compaction 点 `VACUUM INTO`;大库差量/GC 仍留 P5。
 - **WI 处理(§20.7)**:P3 compaction 前缀 —— 接受 B 随 WI 变 or 激活集指纹 + 滞后;P3 内定。
