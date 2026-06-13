@@ -1,4 +1,4 @@
-use crate::domain::models::chat::{Chat, ChatMessage, MessageExtra};
+use crate::domain::models::chat::{Chat, ChatMessage, MessageExtra, TauritavernMeta};
 use crate::domain::repositories::chat_repository::{
     ChatExportFormat, ChatImportFormat, ChatPayloadCursor, ChatPayloadPatchOp, ChatSearchResult,
     PinnedCharacterChat, PinnedGroupChat,
@@ -51,6 +51,9 @@ pub struct MessageExtraDto {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force_avatar: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tauritavern: Option<TauritavernMeta>,
 
     #[serde(default, flatten)]
     pub additional: HashMap<String, serde_json::Value>,
@@ -260,6 +263,7 @@ impl From<MessageExtra> for MessageExtraDto {
             swipe_info: extra.swipe_info,
             title: extra.title,
             force_avatar: extra.force_avatar,
+            tauritavern: extra.tauritavern,
             additional: extra.additional,
         }
     }
@@ -281,6 +285,7 @@ impl From<MessageExtraDto> for MessageExtra {
             swipe_info: dto.swipe_info,
             title: dto.title,
             force_avatar: dto.force_avatar,
+            tauritavern: dto.tauritavern,
             additional: dto.additional,
         }
     }
