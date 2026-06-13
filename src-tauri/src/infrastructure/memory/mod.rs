@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 
 pub mod entities;
+pub mod index;
 pub mod search;
 pub mod timeline;
 pub mod types;
@@ -196,6 +197,26 @@ mod tests {
         assert!(hits2
             .iter()
             .any(|h| h.source == SearchSource::Timeline && h.id == "e1"));
+    }
+
+    #[test]
+    fn message_index_resolves_and_clear_all_wipes_derived_data() {
+        let s = MemoryStore::open_in_memory().unwrap();
+        s.set_message_index("m_a", 0, "sha_a").unwrap();
+        s.set_message_index("m_b", 1, "sha_b").unwrap();
+        assert_eq!(s.position_of_msg("m_b").unwrap(), Some(1));
+        s.set_message_index("m_b", 5, "sha_b2").unwrap(); // upsert updates
+        assert_eq!(s.position_of_msg("m_b").unwrap(), Some(5));
+        s.upsert_entity(&Entity { id: "x".into(), ..Default::default() }, Some(0))
+            .unwrap();
+        s.set_watermark(5).unwrap();
+
+        s.clear_all().unwrap(); // rebuild: wipe derived data, keep schema, reset watermark
+        assert_eq!(s.get_entity("x").unwrap(), None);
+        assert_eq!(s.position_of_msg("m_b").unwrap(), None);
+        assert_eq!(s.watermark().unwrap(), 0);
+        assert_eq!(s.schema_version().unwrap(), MEMORY_SCHEMA_VERSION);
+        assert!(s.table_exists("entities").unwrap()); // tables remain
     }
 
     #[test]
