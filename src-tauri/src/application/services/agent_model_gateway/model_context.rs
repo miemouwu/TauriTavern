@@ -13,9 +13,22 @@ pub fn max_context_for(model: &str) -> usize {
     } else if m.contains("gemini") {
         1_000_000
     } else if m.contains("gpt-4o") || m.contains("gpt-4.1") || m.contains("gpt-4-turbo") {
+        // Keep the more-specific gpt-4 variants ABOVE the plain gpt-4 branch below.
         128_000
     } else if m.contains("gemma") {
         8_192
+    } else if m.contains("o1") || m.contains("o3") || m.contains("o4-mini") {
+        200_000
+    } else if m.contains("gpt-3.5") {
+        16_385
+    } else if m.contains("gpt-4") {
+        8_192 // plain gpt-4 base; gpt-4o/4.1/4-turbo handled above
+    } else if m.contains("qwen") {
+        32_768
+    } else if m.contains("mistral") || m.contains("mixtral") {
+        32_768
+    } else if m.contains("llama") {
+        128_000
     } else {
         8_192
     }
@@ -74,6 +87,14 @@ mod tests {
         assert_eq!(max_context_for("deepseek-chat"), 65_536);
         assert_eq!(max_context_for("gemini-2.5-pro"), 1_000_000);
         assert_eq!(max_context_for("gpt-4o-mini"), 128_000);
+        // Broadened registry (N3): plain/legacy families + reasoning models.
+        assert_eq!(max_context_for("gpt-4"), 8_192);
+        assert_eq!(max_context_for("gpt-4-turbo"), 128_000); // specific variant wins over plain gpt-4
+        assert_eq!(max_context_for("gpt-3.5-turbo"), 16_385);
+        assert_eq!(max_context_for("o3-mini"), 200_000);
+        assert_eq!(max_context_for("qwen2.5-72b"), 32_768);
+        assert_eq!(max_context_for("mistral-large"), 32_768);
+        assert_eq!(max_context_for("llama-3.1-70b"), 128_000);
         assert_eq!(max_context_for("totally-unknown-model"), 8_192);
     }
 

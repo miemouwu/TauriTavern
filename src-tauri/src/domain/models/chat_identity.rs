@@ -106,4 +106,37 @@ mod tests {
         let idx = build_id_index(&msgs);
         assert_eq!(idx.get(&id1), Some(&2));
     }
+
+    #[test]
+    fn resolver_handles_delete_shift_and_duplicate_first_match() {
+        let mut msgs = vec![
+            ChatMessage::user("u", "a"),
+            ChatMessage::character("b", "b"),
+            ChatMessage::user("u", "c"),
+        ];
+        stamp_all(&mut msgs);
+        let id2 = msgs[2]
+            .extra
+            .tauritavern
+            .as_ref()
+            .unwrap()
+            .msg_id
+            .clone()
+            .unwrap();
+        assert_eq!(position_of(&msgs, &id2), Some(2));
+        msgs.remove(0); // delete shifts positions down
+        assert_eq!(position_of(&msgs, &id2), Some(1));
+        // duplicate id resolves to the FIRST occurrence
+        let dup = msgs[0].clone();
+        msgs.push(dup);
+        let id0 = msgs[0]
+            .extra
+            .tauritavern
+            .as_ref()
+            .unwrap()
+            .msg_id
+            .clone()
+            .unwrap();
+        assert_eq!(position_of(&msgs, &id0), Some(0));
+    }
 }
