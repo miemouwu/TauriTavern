@@ -2,6 +2,7 @@
 
 本文件定义 Agent 的**长期记忆层(Memory)**与**上下文压缩(Compaction)**的统一设计。是实现蓝本,也是面向社区讨论的草案。
 
+> **v3.1 修订**:新增**场景在场名单**(`participants` / `notable_absent`)防"相似事件串味/事件穿越"(漫展周六带女A、周日未带,模型易把女A 写进周日);状态头打当前在场 + 显著缺席;verifier 加在场校验。
 > **v3 修订**(回应二审):拆"易变状态头(放尾部)"与"稳定 digest(在冻结前缀)"消除三时钟矛盾;变更检测改为**操作钩子(swipe/edit 事件)+ content_sha 仅作完整性校验**,区分 swipe/编辑;诚实重述跨 run 历史压缩为**扩展前端 context-policy**(非重写 Rust prompt builder)+**协同而非禁用** PromptManager 裁剪;新增 §9 **合并的原子性/失败/降级**(S3);明确 verifier 关闭时降级的不变量;存储 GC 诚实化。
 > **v2 修订**(回应首轮):水位线公式、消息身份 P0、turn/round、与 PromptAssembly.md 归属、世界书出 A 区、verifier 成本、token 表述、检索粒度、非线性/存储/安全三节。变更点标注 (Bx/Sx/Nx)。
 
@@ -84,10 +85,13 @@ persist/digest.md             # 派生（仅 compaction 时物化进前缀 B）
   "narration_order":47, "diegetic_seq":138,
   "story_time_label":"洪荒历114年·惊蛰", "frame":"actual",
   "status":"past", "summary":"顾远向林安安表白",
+  "participants":["顾远","林安安"], "notable_absent":[],
   "source_refs":[{"message_id":"m_…","content_sha":"…"}] }
 ```
 
 `diegetic_seq`(单调整数)供排序/"剧内 N 天前";`frame`∈actual/flashback/dream/hypothetical/rumor;`event_id` 基于 content_sha 而非位置 → 移位不改 id。
+
+**`participants` / `notable_absent`(在场 / 显著缺席)防"相似事件串味"(v3.1)**:两个相似事件——周六漫展 `participants:[主角,女A]` 与周日漫展 `participants:[主角], notable_absent:[女A]`——是不同事件;女A 的周日缺席被**显式记录**(负事实)。LLM 对"靠时序推断谁在场"很弱、对"缺席"尤其易漂,故把在场名单结构化 + 状态头就近注入(§6),避免模型把两次糊在一起、把女A 写进周日。`participants` 是场景/事件级 roster,可由 consolidation 从该窗口提取。
 
 ### 4.3 置信度
 
@@ -114,7 +118,7 @@ TauriTavern 无稳定消息 id(`ChatMessage` 仅 name/is_user/is_system/send_dat
 | Memory 表合并 | 每 N=3 turn | 后端 persist | 否 |
 | **稳定 digest 物化进前缀 B** + 丢历史 | token ≥ 80% | prompt **前缀 B** | 破一次 |
 
-**关键(修正 N2)**:`memory.search` 与"易变状态头"都读**每-3-turn 的表**(同源,不打架);它们放在**尾部 D**,每 turn 刷新无所谓——尾部本就不在缓存前缀里。**冻结前缀 B 里的 digest 只在 compaction 时更新**,故两次 compaction 之间前缀字节稳定。**"always-on 状态头"≠"前缀 B"**:状态头在尾部,digest 在前缀,二者是不同位置的不同物。
+**关键(修正 N2)**:`memory.search` 与"易变状态头"都读**每-3-turn 的表**(同源,不打架);它们放在**尾部 D**,每 turn 刷新无所谓——尾部本就不在缓存前缀里。**冻结前缀 B 里的 digest 只在 compaction 时更新**,故两次 compaction 之间前缀字节稳定。**"always-on 状态头"≠"前缀 B"**:状态头在尾部,digest 在前缀,二者是不同位置的不同物。**状态头须打当前场景在场名单 + 显著缺席**(如 `在场:主角 | ⚠️女A 未同行(只来了周六)`)——把负事实就近、高 salience 注入,治"相似事件串味/事件穿越"(§4.2)。
 
 **水位线(B1)**:合并处理 `(watermark, now − tail_len]`,水位线永远落后逐字尾部 ≥ tail_len。故:尾部永远逐字 → 不靠表新鲜;任一 turn 滚出尾部前必已合并 → 零滞后;swipe 永在尾部 → 无需 revert。约束 `tail_len ≥ N` 且 `≥ 可 swipe 深度`(群聊多条可 swipe 尾部 → 取够)。
 
@@ -127,7 +131,7 @@ A 冻结前缀（字节恒定 → 缓存恒命中）
    系统提示 + 工具 schema（指纹化） + 角色卡/人设（聊天级稳定部分）
 B 稳定 digest（仅 compaction 时更新进 prompt → 两次 compaction 间稳定）
 C 可压缩中段（compaction 丢弃目标）
-D 尾部（逐字，≥ tail_len，含活跃 tool 配对 + 易变状态头 + memory.search 结果）
+D 尾部（逐字，≥ tail_len，含活跃 tool 配对 + 易变状态头【当前场景在场名单 + 显著缺席】 + memory.search 结果）
 ```
 
 - **世界书出 A(B4)**:WI 每 run 按需激活(`PromptAssembly.md:64`,timed/sticky 必 churn)→ 归 B/C,或激活集**带滞后指纹**。A 只留真正稳定部分。
@@ -184,6 +188,7 @@ writer → workspace 草稿 → planner 旁路审查（scratch，阅后即焚）
 | --- | --- | --- | --- |
 | 不可变/结构事实 | "儿子"写成"丈夫" | Memory | 修文本 |
 | 可变状态 | "在摊位"→"回家了" | writer | 更新 Memory |
+| **在场名单** | 周日漫展写出只在周六到场的女A | **当前场景名单赢** | 修文本/打回(角色未在场) |
 
 `human_confirmed` 被违背→几乎必错;`provisional`→writer 可能是纠正;模糊→升级给人。
 
