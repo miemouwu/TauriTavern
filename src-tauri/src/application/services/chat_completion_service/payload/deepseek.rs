@@ -20,15 +20,19 @@ pub(super) fn build(mut payload: Map<String, Value>) -> Result<(String, Value), 
         .unwrap_or_default()
         .trim()
         .to_string();
-    let mut thinking_mode = resolve_thinking_mode(&payload, &model);
-    // DeepSeek thinking mode rejects a forced tool_choice ("required" or a specific
-    // function) with "Thinking mode does not support this tool_choice". The Agent
-    // runtime always sends tool_choice=required, so when tool usage is forced we run
-    // non-thinking here — tools still work; only the separate thinking phase drops.
-    if payload_forces_tool_choice(&payload) {
-        if let Some(mode) = thinking_mode.as_mut() {
-            *mode = DeepSeekThinkingMode::Disabled;
-        }
+    let thinking_mode = resolve_thinking_mode(&payload, &model);
+    // DeepSeek thinking mode rejects a *forced* tool_choice ("required" or a
+    // specific function) with "Thinking mode does not support this tool_choice".
+    // The Agent runtime always sends tool_choice=required. Rather than sacrifice
+    // reasoning, relax the forced choice to "auto" so the model keeps thinking AND
+    // can still call tools. The Agent loop tolerates an occasional plain-text turn
+    // via drift recovery (loop_runner.rs, issue #64), so "auto" stays correct even
+    // though the runtime would prefer a forced call (issue #75).
+    if thinking_mode == Some(DeepSeekThinkingMode::Enabled) && payload_forces_tool_choice(&payload) {
+        payload.insert(
+            "tool_choice".to_string(),
+            Value::String("auto".to_string()),
+        );
     }
     let reasoning_effort = match thinking_mode {
         Some(DeepSeekThinkingMode::Enabled) => normalize_reasoning_effort(
@@ -358,9 +362,10 @@ mod tests {
     }
 
     #[test]
-    fn deepseek_v4_forces_non_thinking_when_tool_choice_required() {
-        // The Agent runtime forces tool_choice=required; DeepSeek thinking mode
-        // rejects that, so a v4 model (thinking-default) must drop thinking here.
+    fn deepseek_v4_relaxes_forced_tool_choice_to_auto_when_thinking() {
+        // The Agent runtime forces tool_choice=required, which DeepSeek thinking
+        // mode rejects. Instead of dropping thinking, the payload relaxes the
+        // forced choice to "auto" so the model keeps reasoning AND can call tools.
         let payload = json!({
             "model": "deepseek-v4-pro",
             "messages": [{"role": "user", "content": "hello"}],
@@ -383,8 +388,48 @@ mod tests {
                 .and_then(Value::as_object)
                 .and_then(|thinking| thinking.get("type"))
                 .and_then(Value::as_str),
-            Some("disabled"),
-            "forced tool_choice must drop thinking so DeepSeek accepts the request"
+            Some("enabled"),
+            "thinking must be preserved"
+        );
+        assert_eq!(
+            body.get("tool_choice").and_then(Value::as_str),
+            Some("auto"),
+            "forced tool_choice must be relaxed to auto so DeepSeek thinking accepts it"
+        );
+    }
+
+    #[test]
+    fn deepseek_non_thinking_keeps_forced_tool_choice() {
+        // Non-thinking models accept a forced tool_choice, so the runtime's
+        // `required` (issue #75) must pass through untouched.
+        let payload = json!({
+            "model": "deepseek-chat",
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [{
+                "type": "function",
+                "function": {"name": "memory_search", "description": "x", "parameters": {"type": "object"}}
+            }],
+            "tool_choice": "required",
+            "chat_completion_source": "deepseek"
+        })
+        .as_object()
+        .cloned()
+        .expect("payload must be object");
+
+        let (_, upstream) = build(payload).expect("payload should build");
+        let body = upstream.as_object().expect("body must be object");
+
+        assert_eq!(
+            body.get("thinking")
+                .and_then(Value::as_object)
+                .and_then(|thinking| thinking.get("type"))
+                .and_then(Value::as_str),
+            Some("disabled")
+        );
+        assert_eq!(
+            body.get("tool_choice").and_then(Value::as_str),
+            Some("required"),
+            "non-thinking models must keep the forced tool_choice"
         );
     }
 
