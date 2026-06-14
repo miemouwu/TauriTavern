@@ -5153,6 +5153,8 @@ async function GenerateInternal(type, { automatic_trigger, force_name2, quiet_pr
         const windowState = getWindowedChatState();
 
         if (windowState?.cursor && windowState.hasMoreBefore) {
+            const startCursor = windowState.cursor;
+            console.log(`[windowed-backfill] start: chat=${windowState.fileName ?? windowState.id} cursor=size${startCursor?.size}/mtime${startCursor?.modifiedMillis ?? startCursor?.modified_millis}@off${startCursor?.offset} baseMsgs=${chat.length} budgetTokens=${this_max_context}`);
             try {
                 const backfillResult = await buildGenerationChatWithBackfill({
                     baseMessages: chat,
@@ -5162,6 +5164,7 @@ async function GenerateInternal(type, { automatic_trigger, force_name2, quiet_pr
 
                 generationChat = backfillResult.chat;
                 backfillResult.added.forEach(ensureMessageMediaIsArray);
+                console.log(`[windowed-backfill] ok: addedMsgs=${backfillResult.added.length} generationChatLen=${generationChat.length}`);
             } catch (error) {
                 if (isWindowedCursorInvalidError(error)) {
                     const details = describeWindowedCursorError(error) || t`Windowed chat cursor is invalid`;
@@ -8415,6 +8418,9 @@ async function saveChatUnsafe({ chatName, withMetadata, mesId, force = false, ch
                     force: Boolean(force),
                 });
 
+                const sent = windowState.cursor;
+                console.log(`[windowed-save] patched chat=${fileName}: sentCursor=size${sent?.size}/mtime${sent?.modifiedMillis ?? sent?.modified_millis}@off${sent?.offset} -> newCursor=size${cursor?.size}/mtime${cursor?.modifiedMillis ?? cursor?.modified_millis}@off${cursor?.offset} patchKind=${patch?.kind}`);
+
                 const activeWindowState = getWindowedChatState();
                 if (getWindowedChatKey(activeWindowState) === expectedWindowKey) {
                     const shouldUpdateCounters = activeWindowState?.cursor?.offset === expectedCursorOffset;
@@ -8430,6 +8436,8 @@ async function saveChatUnsafe({ chatName, withMetadata, mesId, force = false, ch
                     }
 
                     setWindowedChatState(nextWindowState);
+                } else {
+                    console.warn(`[windowed-save] cursor NOT refreshed: window key changed during save (was '${expectedWindowKey}', now '${getWindowedChatKey(activeWindowState)}') — windowState.cursor may now be stale, next backfill can signature-mismatch`);
                 }
             } else {
                 await saveCharacterChatPayload({

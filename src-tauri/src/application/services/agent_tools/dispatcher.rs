@@ -19,6 +19,7 @@ use crate::domain::repositories::agent_run_repository::AgentRunRepository;
 use crate::domain::repositories::chat_repository::ChatRepository;
 use crate::domain::repositories::group_chat_repository::GroupChatRepository;
 use crate::domain::repositories::workspace_repository::{WorkspaceFile, WorkspaceRepository};
+use crate::infrastructure::logging::logger;
 use crate::infrastructure::memory::{MemoryStore, MemoryStoreProvider};
 
 const RUN_PROMPT_SNAPSHOT_PATH: &str = "input/prompt_snapshot.json";
@@ -129,6 +130,13 @@ impl AgentToolDispatcher {
         model_workspace_repository: &dyn WorkspaceRepository,
     ) -> Result<AgentToolDispatchOutcome, ApplicationError> {
         let started = Instant::now();
+        // Diagnostic logging for the agent-memory tools (e2e troubleshooting).
+        if call.name.starts_with("memory.") {
+            logger::info(&format!(
+                "[memory-tool] {} called (run_id={}): {}",
+                call.name, run_id, call.arguments
+            ));
+        }
         let outcome = match call.name.as_str() {
             chat::CHAT_SEARCH => {
                 chat::search(
@@ -218,6 +226,17 @@ impl AgentToolDispatcher {
                 )
             }
         };
+
+        if call.name.starts_with("memory.") {
+            let preview: String = outcome.0.content.chars().take(300).collect();
+            logger::info(&format!(
+                "[memory-tool] {} -> is_error={} elapsed_ms={} content={}",
+                call.name,
+                outcome.0.is_error,
+                started.elapsed().as_millis(),
+                preview
+            ));
+        }
 
         Ok(AgentToolDispatchOutcome {
             result: outcome.0,

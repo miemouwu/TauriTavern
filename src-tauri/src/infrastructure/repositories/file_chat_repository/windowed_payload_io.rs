@@ -7,6 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 
 use crate::domain::errors::DomainError;
 use crate::domain::repositories::chat_repository::ChatPayloadCursor;
+use crate::infrastructure::logging::logger;
 use crate::infrastructure::persistence::file_system::replace_file_with_fallback;
 
 pub(super) const WINDOW_READ_CHUNK_BYTES: usize = 64 * 1024;
@@ -260,10 +261,20 @@ pub(super) fn verify_cursor_signature(
 ) -> Result<(), DomainError> {
     let (size, modified_millis) = file_signature_from_metadata(metadata)?;
     if cursor.size != size || cursor.modified_millis != modified_millis {
-        return Err(DomainError::InvalidData(format!(
-            "Cursor signature mismatch for {:?}",
-            path
-        )));
+        // Surface BOTH signatures + which field diverged so the cause is
+        // diagnosable from the log alone: a size delta means the file content
+        // actually changed (a write landed between cursor mint and use); a
+        // mtime-only delta with identical size points at an out-of-band touch or
+        // mtime instability (e.g. Android external storage) rather than a real
+        // content change. See docs/investigations/windowed-cursor-mismatch.md.
+        let size_changed = cursor.size != size;
+        let mtime_changed = cursor.modified_millis != modified_millis;
+        let detail = format!(
+            "Cursor signature mismatch for {:?}: cursor=(size={}, mtime_ms={}) actual=(size={}, mtime_ms={}) [size_changed={}, mtime_changed={}]",
+            path, cursor.size, cursor.modified_millis, size, modified_millis, size_changed, mtime_changed
+        );
+        logger::warn(&detail);
+        return Err(DomainError::InvalidData(detail));
     }
 
     Ok(())
