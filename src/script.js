@@ -36,6 +36,7 @@ import {
 } from './scripts/tauri/chat/windowed-state.js';
 import {
     buildGenerationChatWithBackfill,
+    describeWindowedCursorError,
     isWindowedCursorInvalidError,
 } from './scripts/tauri/chat/prompt-backfill.js';
 import { extension_prompt_roles, extension_prompt_types } from './scripts/extension-prompts.js';
@@ -56,6 +57,7 @@ import {
 import { agentErrorMessage } from './scripts/tauritavern/agent/agent-error-presenter.js';
 import { normalizeAgentContextPolicy } from './scripts/tauritavern/agent/agent-context-policy.js';
 import { normalizeAgentSystemPrompt } from './scripts/tauritavern/agent/agent-system-prompt.js';
+import { stampAllMessages } from './scripts/tauritavern/message-identity.js';
 import {
     buildFrozenRunInputSnapshot,
     normalizeFrozenRunInputSnapshot,
@@ -167,7 +169,6 @@ import {
     selected_proxy,
     initOpenAI,
 } from './scripts/openai.js';
-import { stripCommandErrorPrefixes } from './scripts/util/command-error-utils.js';
 
 import {
     generateNovelWithStreaming,
@@ -5163,8 +5164,7 @@ async function GenerateInternal(type, { automatic_trigger, force_name2, quiet_pr
                 backfillResult.added.forEach(ensureMessageMediaIsArray);
             } catch (error) {
                 if (isWindowedCursorInvalidError(error)) {
-                    const rawMessage = error?.message ?? error;
-                    const details = stripCommandErrorPrefixes(rawMessage) || t`Windowed chat cursor is invalid`;
+                    const details = describeWindowedCursorError(error) || t`Windowed chat cursor is invalid`;
                     const reloadHint = t`Reload the chat to resync.`;
 
                     toastr.warning(
@@ -8374,6 +8374,9 @@ async function saveChatUnsafe({ chatName, withMetadata, mesId, force = false, ch
         return;
     }
 
+    // Agent Memory P0: stamp stable ids on every persisted message (backfills legacy).
+    stampAllMessages(chatData ?? chat);
+
     characters[this_chid].date_last_chat = Date.now();
 
     const trimmedChat = Array.isArray(chatData)
@@ -8778,6 +8781,8 @@ async function getChatResult({ allowNewChat = false } = {}) {
         // Make sure the chat appears on the server
         await saveChatConditional();
     }
+    // Agent Memory P0: backfill ids when an (old) chat is opened; persisted on next save.
+    stampAllMessages(chat);
     await loadItemizedPrompts(getCurrentChatId());
     await printMessages();
     select_selected_character(this_chid);

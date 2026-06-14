@@ -487,3 +487,24 @@ pub async fn import_character_chats(
         .await
         .map_err(map_command_error("Failed to import character chats"))
 }
+
+#[tauri::command]
+pub async fn backfill_chat_identity(
+    character_name: String,
+    file_name: String,
+    app_state: State<'_, Arc<AppState>>,
+) -> Result<usize, CommandError> {
+    log_command(format!(
+        "backfill_chat_identity {}/{}",
+        character_name, file_name
+    ));
+
+    app_state
+        .chat_service
+        .backfill_chat_identity(&character_name, &file_name)
+        .await
+        .map_err(map_command_error(format!(
+            "Failed to backfill chat identity {}/{}",
+            character_name, file_name
+        )))
+}
