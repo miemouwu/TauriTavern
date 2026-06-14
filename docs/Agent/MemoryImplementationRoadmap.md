@@ -30,7 +30,7 @@ v3 §10 复用 `summary.rs` 的 per-file Bloom + 新写每行 trigram 指纹做�
 - **`timeline(range)`**:`diegetic_seq` B-tree 范围查询,取代 grep JSONL。
 - **§9 原子合并**:多表 delta 写 + 推进水位线 = **单事务**(ACID),取代「staging + rename」。
 - **§15 条目级 CAS**:`UPDATE … WHERE version = ?`,取代手写 read-before-write。
-- **依赖(macOS 已验)**:`rusqlite 0.40`(`bundled`,SQLite 3.53.2)—— FTS5 `trigram` CJK 子串 + 多表单事务在 mac host 实测通过(spike,§7)。**本仓原无 sqlite 依赖**;移动端(Android/iOS)编译**本轮未验**(只做 mac)。
+- **依赖(macOS 已验)**:`rusqlite 0.40`(`bundled`,SQLite 3.53.2)—— FTS5 `trigram` CJK 子串 + 多表单事务在 mac host 实测通过(spike,§7)。**本仓原无 sqlite 依赖**;移动端(Android/iOS)编译**本轮未验**(只做 mac)。⚠️ **MSRV ≥ 1.95**:`libsqlite3-sys 0.38` 的 build.rs 用了 `cfg_select!`(Rust 1.95 才稳定化),stable < 1.95 直接 `E0658` 编不过;已加 **`rust-toolchain.toml` 钉 `1.96.0`** 保证可复现。「实测通过」指 mac host 的 stable(=1.96.0),**非** pinned-stable < 1.95。
 - **事实层不变**:chat 仍 JSONL → 仍满足 I2「memory = derive(chat),可重建」(rebuild = drop tables + 重派生)。
 - **持久化集成(spike 已定 → B-hybrid,见 §7)**:persist 是**盲目录遍历拷贝**(`fs_tree.rs:31` `copy_directory_contents`)。spike 确认活 WAL `.db` 盲拷不可用(数据在 `-wal`),**须 `VACUUM INTO` 产干净快照**。决策:`memory.db` 置于 per-run 盲拷**之外**,仅在合并/compaction 提交点 `VACUUM INTO` 打快照(粗回滚锚点);run 内回滚靠幂等水位线重处理 + 完整性校验,`rebuild` 兜底。
 - **透明度代价**:`.db` 非 git-diff → 加 `memory.export`(dump 成 JSON)缓解。
@@ -94,7 +94,7 @@ stamp 幂等;未知字段 round-trip 保留;`contentSha` 稳定 / 改 `mes` 即�
 ## 7. 风险与待定
 
 - **memory.db × per-run 快照/rollback —— spike 已做(2026-06-13,macOS host),结论:SQLite GO,采用 B-hybrid。**
-  - (i) **通过**:`rusqlite 0.40 bundled`(SQLite 3.53.2)→ FTS5 `trigram` CJK 子串(含 mid-string)+ 多表单事务原子提交/回滚,全 PASS。
+  - (i) **通过**:`rusqlite 0.40 bundled`(SQLite 3.53.2)→ FTS5 `trigram` CJK 子串(含 mid-string)+ 多表单事务原子提交/回滚,全 PASS。⚠️ 限定条件:**Rust ≥ 1.95**(`libsqlite3-sys 0.38` 的 `cfg_select!`,见 §1 依赖 + 仓库根 `rust-toolchain.toml` 钉 `1.96.0`);该「PASS」在 mac host stable(1.96.0)取得,stable < 1.95 会 `E0658` 编不过。
   - (ii) **风险确认**:WAL 下盲拷主 `.db` 不可用(schema+数据在 `-wal`)→ persist 盲目录拷贝**绝不能**直拷活 `memory.db`;**须 `VACUUM INTO`**(实测 1ms、`integrity_check=ok`、干净单文件)。
   - (iii) **成本**(5000 timeline + 1000 entities):`.db`(含 FTS5 索引)2.7MB ≈ 2× JSONL(1.3MB);拷贝时间可忽略(盲拷 5.4ms / `VACUUM INTO` 7.3ms)→ 拷**时间**非瓶颈,2× 体积随每快照累积是真成本。
   - **决策 → B-hybrid**:`memory.db` 在 per-run 盲拷**之外**(自身 WAL 持久),仅在**合并/compaction 提交点** `VACUUM INTO` 快照;run 内回滚靠幂等水位线重处理 + 完整性校验,`rebuild` 兜底(合 §9)。
