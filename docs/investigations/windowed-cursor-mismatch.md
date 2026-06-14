@@ -83,3 +83,21 @@ capture cursor 与 backfill 之间发生保存,文件变了但 backfill 仍用�
 - ❌ **不是** Agent Memory P0 的 `stampAllMessages`(用户是原版,无此代码)。
 - 小白X 插件**不在本仓库**,需用户提供适配代码才能定 H1 细节。
 - 优先级:**先 H1(禁插件测试,成本最低、最可能)**,再 H2(主流程 cursor 刷新),H3 兜底。
+
+## 10. 调查结论(2026-06-14,本次代码侧)
+
+### ✅ `[object Object]` toast 根因已定位并修复(§6 待定位项 / §7 步骤 5)
+- 报错对象的来源:后端 `CommandError`(`src-tauri/src/presentation/errors.rs`)是 `#[derive(Serialize)]` 的**裸枚举**,serde 默认 **externally-tagged**。`DomainError::InvalidData("Cursor signature mismatch …")` → `CommandError::BadRequest(…)` → 跨 Tauri 桥到达 JS 时是对象 **`{ "BadRequest": "Cursor signature mismatch for …" }`**(无顶层 `.message`)。
+- **检测正常、显示失败**:`isWindowedCursorInvalidError` 经 `extractErrorMessage` 会 `JSON.stringify` → 命中关键字 → `true`;但 toast 文案(`src/script.js`)取的是 `error?.message ?? error` → 对象 → `stripCommandErrorPrefixes(对象)` 内部 `String(对象)` = **`[object Object]`**。与现象 §1.2 完全一致。
+- **修法(已实现)**:`prompt-backfill.js` 的 `extractErrorMessage` 增加「单字符串值对象」拆包(命中 CommandError 形状);新增并导出 `describeWindowedCursorError(error)`;toast 改用它。检测与显示从此共用同一提取逻辑,UI 不再出现 `[object Object]`,会显示真实信息(含磁盘路径)。回归测试见 `tests/windowed-payload-cursor-errors.test.mjs`。
+- **诊断价值**:Android 端下次复现时 toast 将显示 `Cursor signature mismatch for "/storage/emulated/0/…"` 而非 `[object Object]` —— 这正是判 H1/H3 所需的信息。
+
+### ✅ H2(前台「保存后未刷新 cursor」)对**单写者前台链路**证伪
+- 前台 `saveChatUnsafe`(`src/script.js` 窗口化分支)在 `await patchCharacterChatPayloadWindowed(…)` 后,会经 `mergeWindowedChatCursorOffset` 把**保存返回的新 cursor 写回 `windowState.cursor`**(签名取自新 cursor)。
+- 后端 `patch_payload_windowed_internal`(`windowed_patch.rs:482-491`)在写入后**重新 `stat`**,返回**写后**签名。
+- 故「tail load → 前台保存(刷新签名)→ 回填(用刷新后签名)」happy-path **自洽**,不会自发 mismatch。**这把根因进一步推向 H1(带外写者)/H3(Android mtime 不稳)**,与 §2「用户是原版 + 装了第三方插件」一致。
+- ⚠️ 残留隐患(非本次修):刷新有 `getWindowedChatKey(active) === expectedWindowKey` 守卫;若 `await` 期间窗口 key 变化(插件驱动的上下文切换/重建),刷新被**静默跳过**,而文件已被写 → cursor 变 stale。属 H1 邻近竞态。
+
+### 仍需用户侧(无法在代码侧定论)
+- **H1 决定性测试**:禁用小白X 插件后重开旧对话发消息(需用户 Android 设备)。
+- **持久化修复(Fix 2,建议待 H1/H3 定性后再做)**:cursor 失效时**自动 resync(重载 tail 取新签名)并重试一次**回填,而非降级到小窗口(=「AI 丢最近历史」的直接原因:移动端 tail 窗口小,回填失败即只剩 ~N 楼)。根因若是 H3(mtime 漂移)则改走「签名放宽/size-only/内容 hash」(§8 H3),resync 重试可能打转,需限次。
