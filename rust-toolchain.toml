@@ -1,0 +1,13 @@
+# Pinned for reproducible Rust builds across CI and contributors.
+#
+# The agent-memory MemoryStore (src-tauri) depends on `rusqlite 0.40` ->
+# `libsqlite3-sys 0.38`, whose build script uses the `cfg_select!` macro that was
+# stabilized in Rust 1.95. On stable < 1.95 the build fails outright with E0658
+# (`use of unstable library feature 'cfg_select'`). Before this dependency the
+# crate was file-only, so nothing surfaced a toolchain floor.
+#
+# Pinning a known-good stable (>= 1.95) makes the build reproducible instead of
+# silently depending on whatever floating `stable` the CI runner happens to pull.
+# Bump this deliberately when adopting a newer toolchain.
+[toolchain]
+channel = "1.96.0"
