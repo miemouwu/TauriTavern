@@ -79,6 +79,7 @@ pub(super) fn file_signature_from_metadata(
 
 pub(super) fn cursor_from_metadata(
     offset: u64,
+    header_end: u64,
     metadata: &std::fs::Metadata,
 ) -> Result<ChatPayloadCursor, DomainError> {
     let (size, modified_millis) = file_signature_from_metadata(metadata)?;
@@ -86,7 +87,28 @@ pub(super) fn cursor_from_metadata(
         offset,
         size,
         modified_millis,
+        header_end,
     })
+}
+
+/// Re-anchor a cursor's byte offset against the CURRENT header.
+///
+/// The LittleWhiteBox extension stores large, frequently-changing metadata in the chat
+/// header line (line 0). Each save resizes the header, shifting every body byte offset by
+/// the same delta while the body bytes themselves are unchanged. A cursor minted before
+/// such a resize therefore points mid-line. Because the cursor records the header_end at
+/// mint time, we can recover the correct position body-relative: `current_header_end +
+/// (cursor.offset - cursor.header_end)`.
+///
+/// Legacy cursors (minted before `header_end` existed → 0), or malformed ones whose offset
+/// precedes their recorded header_end, fall back to the raw offset (the caller's existing
+/// bounds + line-boundary checks then apply unchanged).
+pub(super) fn effective_cursor_offset(cursor: &ChatPayloadCursor, current_header_end: u64) -> u64 {
+    if cursor.header_end == 0 || cursor.offset < cursor.header_end {
+        return cursor.offset;
+    }
+    let body_relative = cursor.offset - cursor.header_end;
+    current_header_end.saturating_add(body_relative)
 }
 
 pub(super) fn decode_jsonl_line_bytes(bytes: &[u8]) -> Result<String, DomainError> {

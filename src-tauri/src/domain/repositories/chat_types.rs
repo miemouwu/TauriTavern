@@ -35,6 +35,16 @@ pub struct ChatPayloadCursor {
     pub offset: u64,
     pub size: u64,
     pub modified_millis: i64,
+    /// Byte offset where the body (line 1) starts when this cursor was minted, i.e. the
+    /// length of the header line (line 0) + 1. The LittleWhiteBox extension stores large,
+    /// frequently-changing metadata in the header line, so each save resizes the header and
+    /// shifts every body offset by the same delta. Recording the header_end at mint time lets
+    /// a later read re-anchor `offset` body-relative (`offset - header_end`) against the
+    /// current header, instead of failing when the raw offset no longer lands on a line
+    /// boundary. `#[serde(default)]` keeps cursors minted before this field (header_end == 0)
+    /// working via the legacy raw-offset path.
+    #[serde(default)]
+    pub header_end: u64,
 }
 
 /// Tail window for a chat JSONL payload.

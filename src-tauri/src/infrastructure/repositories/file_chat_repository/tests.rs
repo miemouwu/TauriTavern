@@ -2688,6 +2688,53 @@ async fn windowed_before_read_tolerates_appends_after_cursor() {
 }
 
 #[tokio::test]
+async fn windowed_before_read_tolerates_header_resize() {
+    // Fix 4: the LittleWhiteBox extension writes large, frequently-changing metadata into
+    // the chat's header line (chat_metadata). Every save grows/shrinks the header, which
+    // shifts every BODY byte offset by the same delta. A "before pages" cursor minted
+    // before such a resize then points mid-line, and the read failed with
+    // "Cursor offset is not at a JSONL line boundary" — starving extensions/UI of older
+    // history. The cursor records the header_end at mint time, so the read can re-anchor
+    // body-relative (the bytes from the header to the cursor are unchanged, only shifted).
+    let (repository, root) = setup_repository().await;
+    let (character_name, file_name) = ("alice", "session");
+    let mut payload = windowed_payload_with_messages("hdr-resize", 6);
+    save_chat_payload_from_values(&repository, &root, character_name, file_name, &payload, false)
+        .await
+        .expect("save initial payload");
+
+    let tail = repository
+        .get_character_payload_tail_lines(character_name, file_name, 2)
+        .await
+        .expect("tail");
+    assert!(tail.has_more_before, "need older content before the window");
+    let before_cursor = tail.cursor;
+
+    // Grow the header line (simulate LWB metadata growth); messages are unchanged.
+    if let Some(meta) = payload[0]
+        .get_mut("chat_metadata")
+        .and_then(|m| m.as_object_mut())
+    {
+        meta.insert("lwb_padding".to_string(), json!("x".repeat(4096)));
+    }
+    save_chat_payload_from_values(&repository, &root, character_name, file_name, &payload, true)
+        .await
+        .expect("save grown-header payload");
+
+    // The pre-resize cursor must still read the older messages (re-anchored), not error.
+    let before = repository
+        .get_character_payload_before_lines(character_name, file_name, before_cursor, 10)
+        .await
+        .expect("before-read must tolerate header resize");
+    assert!(
+        !before.lines.is_empty(),
+        "should return older messages after the header grew"
+    );
+
+    let _ = fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
 async fn windowed_patch_tolerates_mtime_drift() {
     // Fix 2: a windowed patch must not fail when only the file mtime drifted (size
     // unchanged). Android sdcardfs ticks mtime without content change; rejecting on
