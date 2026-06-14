@@ -20,7 +20,16 @@ pub(super) fn build(mut payload: Map<String, Value>) -> Result<(String, Value), 
         .unwrap_or_default()
         .trim()
         .to_string();
-    let thinking_mode = resolve_thinking_mode(&payload, &model);
+    let mut thinking_mode = resolve_thinking_mode(&payload, &model);
+    // DeepSeek thinking mode rejects a forced tool_choice ("required" or a specific
+    // function) with "Thinking mode does not support this tool_choice". The Agent
+    // runtime always sends tool_choice=required, so when tool usage is forced we run
+    // non-thinking here — tools still work; only the separate thinking phase drops.
+    if payload_forces_tool_choice(&payload) {
+        if let Some(mode) = thinking_mode.as_mut() {
+            *mode = DeepSeekThinkingMode::Disabled;
+        }
+    }
     let reasoning_effort = match thinking_mode {
         Some(DeepSeekThinkingMode::Enabled) => normalize_reasoning_effort(
             payload
@@ -83,6 +92,15 @@ fn resolve_thinking_mode(
                     .starts_with("deepseek-v4-")
                     .then_some(DeepSeekThinkingMode::Enabled)
             }),
+    }
+}
+
+fn payload_forces_tool_choice(payload: &Map<String, Value>) -> bool {
+    match payload.get("tool_choice") {
+        // "required" forces a call; a specific {"type":"function",...} object also forces.
+        Some(Value::String(value)) => value.eq_ignore_ascii_case("required"),
+        Some(Value::Object(_)) => true,
+        _ => false,
     }
 }
 
@@ -337,6 +355,37 @@ mod tests {
         );
         assert!(body.get("reasoning_effort").is_none());
         assert!(body.get("temperature").is_some());
+    }
+
+    #[test]
+    fn deepseek_v4_forces_non_thinking_when_tool_choice_required() {
+        // The Agent runtime forces tool_choice=required; DeepSeek thinking mode
+        // rejects that, so a v4 model (thinking-default) must drop thinking here.
+        let payload = json!({
+            "model": "deepseek-v4-pro",
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [{
+                "type": "function",
+                "function": {"name": "memory_search", "description": "x", "parameters": {"type": "object"}}
+            }],
+            "tool_choice": "required",
+            "chat_completion_source": "deepseek"
+        })
+        .as_object()
+        .cloned()
+        .expect("payload must be object");
+
+        let (_, upstream) = build(payload).expect("payload should build");
+        let body = upstream.as_object().expect("body must be object");
+
+        assert_eq!(
+            body.get("thinking")
+                .and_then(Value::as_object)
+                .and_then(|thinking| thinking.get("type"))
+                .and_then(Value::as_str),
+            Some("disabled"),
+            "forced tool_choice must drop thinking so DeepSeek accepts the request"
+        );
     }
 
     #[test]
