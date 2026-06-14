@@ -53,6 +53,10 @@ android {
             }
         }
         getByName("release") {
+            // TEMP (test/alongside-lockfix branch only): suffix the applicationId so this
+            // build installs ALONGSIDE the real com.tauritavern.client app for safe
+            // on-device verification of the windowed read-write-lock fix. Do NOT merge.
+            applicationIdSuffix = ".lockfix"
             isMinifyEnabled = true
             isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
