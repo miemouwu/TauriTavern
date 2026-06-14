@@ -190,6 +190,9 @@ impl AgentToolDispatcher {
             workspace::WORKSPACE_COMMIT => {
                 workspace::commit(model_workspace_repository, run_id, call, profile).await?
             }
+            workspace::WORKSPACE_FINALIZE => {
+                workspace::finalize(model_workspace_repository, run_id, call, profile).await?
+            }
             workspace::WORKSPACE_FINISH => workspace::finish(call)?,
             memory::MEMORY_SEARCH => {
                 let store = self.memory_store_for(run_id).await?;

@@ -1,6 +1,7 @@
 mod apply_patch;
 mod args;
 mod commit;
+mod finalize;
 mod finish;
 mod list_files;
 mod policy;
@@ -15,14 +16,15 @@ mod tests;
 
 pub(super) use self::apply_patch::apply_patch;
 pub(super) use self::commit::commit;
+pub(super) use self::finalize::finalize;
 pub(super) use self::finish::finish;
 pub(super) use self::list_files::list_files;
 pub(super) use self::read_file::read_file;
 pub(super) use self::search_files::search_files;
 pub(super) use self::specs::{
-    workspace_apply_patch_spec, workspace_commit_spec, workspace_finish_spec,
-    workspace_list_files_spec, workspace_read_file_spec, workspace_search_files_spec,
-    workspace_write_file_spec,
+    workspace_apply_patch_spec, workspace_commit_spec, workspace_finalize_spec,
+    workspace_finish_spec, workspace_list_files_spec, workspace_read_file_spec,
+    workspace_search_files_spec, workspace_write_file_spec,
 };
 pub(super) use self::write_file::write_file;
 
@@ -32,6 +34,7 @@ pub(super) const WORKSPACE_READ_FILE: &str = "workspace.read_file";
 pub(super) const WORKSPACE_WRITE_FILE: &str = "workspace.write_file";
 pub(super) const WORKSPACE_APPLY_PATCH: &str = "workspace.apply_patch";
 pub(super) const WORKSPACE_COMMIT: &str = "workspace.commit";
+pub(super) const WORKSPACE_FINALIZE: &str = "workspace.finalize";
 pub(super) const WORKSPACE_FINISH: &str = "workspace.finish";
 
 const DEFAULT_LIST_DEPTH: usize = 2;

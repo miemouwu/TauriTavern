@@ -379,6 +379,7 @@ fn tool_is_visible(
             return true;
         }
         if name == "workspace.commit"
+            || name == "workspace.finalize"
             || name == "workspace.finish"
             || name == AGENT_LIST
             || name == AGENT_DELEGATE

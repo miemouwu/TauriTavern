@@ -1,8 +1,9 @@
 use serde_json::json;
 
 use super::{
-    MODEL_WORKSPACE_ROOTS_FOR_MODEL, WORKSPACE_APPLY_PATCH, WORKSPACE_COMMIT, WORKSPACE_FINISH,
-    WORKSPACE_LIST_FILES, WORKSPACE_READ_FILE, WORKSPACE_SEARCH_FILES, WORKSPACE_WRITE_FILE,
+    MODEL_WORKSPACE_ROOTS_FOR_MODEL, WORKSPACE_APPLY_PATCH, WORKSPACE_COMMIT, WORKSPACE_FINALIZE,
+    WORKSPACE_FINISH, WORKSPACE_LIST_FILES, WORKSPACE_READ_FILE, WORKSPACE_SEARCH_FILES,
+    WORKSPACE_WRITE_FILE,
 };
 use crate::domain::models::agent::AgentToolSpec;
 
@@ -12,6 +13,7 @@ const MODEL_WORKSPACE_READ_FILE: &str = "workspace_read_file";
 const MODEL_WORKSPACE_WRITE_FILE: &str = "workspace_write_file";
 const MODEL_WORKSPACE_APPLY_PATCH: &str = "workspace_apply_patch";
 const MODEL_WORKSPACE_COMMIT: &str = "workspace_commit";
+const MODEL_WORKSPACE_FINALIZE: &str = "workspace_finalize";
 const MODEL_WORKSPACE_FINISH: &str = "workspace_finish";
 
 pub(in crate::application::services::agent_tools) fn workspace_list_files_spec() -> AgentToolSpec {
@@ -232,6 +234,33 @@ pub(in crate::application::services::agent_tools) fn workspace_commit_spec() -> 
                     "description": "Short commit reason."
                 }
             }
+        }),
+        output_schema: None,
+        annotations: json!({ "control": true, "mutating": true }),
+        source: "builtin".to_string(),
+    }
+}
+
+pub(in crate::application::services::agent_tools) fn workspace_finalize_spec() -> AgentToolSpec {
+    AgentToolSpec {
+        name: WORKSPACE_FINALIZE.to_string(),
+        model_name: MODEL_WORKSPACE_FINALIZE.to_string(),
+        title: "Workspace Finalize".to_string(),
+        description: "Publish a finished workspace file as the chat message in one step: copies source_path into the message body (output/main.md) and requests the chat commit. Use this instead of read_file+write_file+commit when a sub-agent already produced the complete message (e.g. source_path=scratch/render.md) — the file content does not need to pass through your context. Call workspace_finish afterwards to close the run.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "source_path": {
+                    "type": "string",
+                    "description": format!("Relative visible workspace file to publish as the chat message, under {MODEL_WORKSPACE_ROOTS_FOR_MODEL} (e.g. scratch/render.md).")
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Short commit reason."
+                }
+            },
+            "required": ["source_path"]
         }),
         output_schema: None,
         annotations: json!({ "control": true, "mutating": true }),

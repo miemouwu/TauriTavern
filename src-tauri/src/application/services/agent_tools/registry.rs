@@ -8,7 +8,7 @@ use super::skill::{SKILL_READ, skill_list_spec, skill_read_spec, skill_search_sp
 use super::workspace::{
     WORKSPACE_APPLY_PATCH, WORKSPACE_COMMIT, WORKSPACE_FINISH, WORKSPACE_LIST_FILES,
     WORKSPACE_READ_FILE, WORKSPACE_SEARCH_FILES, WORKSPACE_WRITE_FILE, workspace_apply_patch_spec,
-    workspace_commit_spec, workspace_finish_spec, workspace_list_files_spec,
+    workspace_commit_spec, workspace_finalize_spec, workspace_finish_spec, workspace_list_files_spec,
     workspace_read_file_spec, workspace_search_files_spec, workspace_write_file_spec,
 };
 use super::world_info::worldinfo_read_activated_spec;
@@ -47,6 +47,7 @@ impl BuiltinAgentToolRegistry {
                 workspace_write_file_spec(),
                 workspace_apply_patch_spec(),
                 workspace_commit_spec(),
+                workspace_finalize_spec(),
                 workspace_finish_spec(),
             ],
         }
