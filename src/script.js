@@ -57,7 +57,14 @@ import {
 import { agentErrorMessage } from './scripts/tauritavern/agent/agent-error-presenter.js';
 import { normalizeAgentContextPolicy } from './scripts/tauritavern/agent/agent-context-policy.js';
 import { normalizeAgentSystemPrompt } from './scripts/tauritavern/agent/agent-system-prompt.js';
-import { stampAllMessages } from './scripts/tauritavern/message-identity.js';
+// Lazy-load message-identity instead of a static import: a static import pulls it
+// into power-user.js's eval chain (via group-chats.js, imported by power-user.js)
+// before `power_user` is declared, triggering a `power_user` TDZ at load in
+// bundled (tauri://) builds. The dynamic import resolves during init, before any
+// save/getChatResult call, so stamping still works synchronously thereafter.
+let stampAllMessagesImpl = () => {};
+import('./scripts/tauritavern/message-identity.js').then((mod) => { stampAllMessagesImpl = mod.stampAllMessages; });
+function stampAllMessages(messages) { return stampAllMessagesImpl(messages); }
 import {
     buildFrozenRunInputSnapshot,
     normalizeFrozenRunInputSnapshot,

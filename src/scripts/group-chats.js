@@ -93,7 +93,12 @@ import {
     saveGroupChatPayload,
     patchGroupChatPayloadWindowed,
 } from './chat-payload-transport.js';
-import { stampAllMessages } from './tauritavern/message-identity.js';
+// Lazy-load message-identity (see script.js): a static import here injects it into
+// power-user.js's eval chain (group-chats.js is imported by power-user.js) before
+// `power_user` is declared, causing a `power_user` TDZ at load in bundled builds.
+let stampAllMessagesImpl = () => {};
+import('./tauritavern/message-identity.js').then((mod) => { stampAllMessagesImpl = mod.stampAllMessages; });
+function stampAllMessages(messages) { return stampAllMessagesImpl(messages); }
 import {
     buildWindowedPayloadPatch,
     clearWindowedChatState,
