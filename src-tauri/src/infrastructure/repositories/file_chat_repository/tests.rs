@@ -9,8 +9,8 @@ use tokio::fs;
 use crate::domain::errors::DomainError;
 use crate::domain::models::character::sanitize_filename;
 use crate::domain::repositories::chat_repository::{
-    ChatMessageRole, ChatMessageSearchFilters, ChatMessageSearchQuery, ChatPayloadPatchOp,
-    ChatRepository, PinnedCharacterChat, PinnedGroupChat,
+    ChatMessageRole, ChatMessageSearchFilters, ChatMessageSearchQuery, ChatPayloadCursor,
+    ChatPayloadPatchOp, ChatRepository, PinnedCharacterChat, PinnedGroupChat,
 };
 use crate::domain::repositories::group_chat_repository::GroupChatRepository;
 
@@ -2584,6 +2584,146 @@ async fn windowed_tail_read_waits_for_in_flight_write_lock() {
         .expect("join read task")
         .expect("tail read succeeds once the write lock is released");
     assert_eq!(tail.lines.len(), 1);
+
+    let _ = fs::remove_dir_all(&root).await;
+}
+
+fn windowed_payload_with_messages(integrity: &str, count: usize) -> Vec<Value> {
+    let mut payload = vec![json!({
+        "chat_metadata": { "integrity": integrity },
+        "user_name": "u",
+        "character_name": "alice",
+    })];
+    for i in 0..count {
+        payload.push(json!({
+            "name": "User",
+            "is_user": i % 2 == 0,
+            "send_date": "2026-01-01T00:00:00.000Z",
+            "mes": format!("message number {i}"),
+            "extra": {},
+        }));
+    }
+    payload
+}
+
+#[tokio::test]
+async fn windowed_before_read_tolerates_mtime_drift() {
+    // Fix 2/3: Android sdcardfs can tick a file's mtime with no content change. A
+    // windowed "before pages" read must NOT fail with a cursor signature mismatch
+    // when only the mtime differs (size + offset unchanged) — that failure starves
+    // extensions (e.g. story-summary) of older history and drops recent floors.
+    let (repository, root) = setup_repository().await;
+    let (character_name, file_name) = ("alice", "session");
+    let payload = windowed_payload_with_messages("mtime-drift", 6);
+    save_chat_payload_from_values(&repository, &root, character_name, file_name, &payload, false)
+        .await
+        .expect("save initial payload");
+
+    let tail = repository
+        .get_character_payload_tail_lines(character_name, file_name, 2)
+        .await
+        .expect("tail");
+    assert!(tail.has_more_before, "need older content before the window");
+
+    // Same offset + size, only mtime drifted.
+    let stale = ChatPayloadCursor {
+        modified_millis: tail.cursor.modified_millis + 5000,
+        ..tail.cursor
+    };
+
+    let before = repository
+        .get_character_payload_before_lines(character_name, file_name, stale, 10)
+        .await
+        .expect("before-read must tolerate mtime drift when size is unchanged");
+    assert!(!before.lines.is_empty(), "should return the older messages");
+
+    let _ = fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn windowed_before_read_tolerates_appends_after_cursor() {
+    // Fix 3: a "before pages" read anchored at a cursor must still succeed after new
+    // messages are appended (file size grows). The bytes before the cursor are
+    // unchanged, so the read is valid; previously it failed with a size_changed
+    // signature mismatch, starving extensions of older history.
+    let (repository, root) = setup_repository().await;
+    let (character_name, file_name) = ("alice", "session");
+    let payload = windowed_payload_with_messages("append-x", 6);
+    save_chat_payload_from_values(&repository, &root, character_name, file_name, &payload, false)
+        .await
+        .expect("save initial payload");
+
+    let tail = repository
+        .get_character_payload_tail_lines(character_name, file_name, 2)
+        .await
+        .expect("tail");
+    assert!(tail.has_more_before);
+    let before_cursor = tail.cursor;
+
+    let new_line = serde_json::to_string(&json!({
+        "name": "User", "is_user": true, "send_date": "2026-01-01T00:00:09.000Z",
+        "mes": "appended message", "extra": {},
+    }))
+    .expect("serialize");
+    repository
+        .patch_chat_payload_windowed(
+            character_name,
+            file_name,
+            tail.cursor,
+            tail.header.clone(),
+            ChatPayloadPatchOp::Append { lines: vec![new_line] },
+            false,
+        )
+        .await
+        .expect("append patch");
+
+    // Pre-append cursor still reads older content (it precedes the appended bytes).
+    let before = repository
+        .get_character_payload_before_lines(character_name, file_name, before_cursor, 10)
+        .await
+        .expect("before-read must tolerate appends after the cursor");
+    assert!(!before.lines.is_empty());
+
+    let _ = fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn windowed_patch_tolerates_mtime_drift() {
+    // Fix 2: a windowed patch must not fail when only the file mtime drifted (size
+    // unchanged). Android sdcardfs ticks mtime without content change; rejecting on
+    // mtime caused spurious delete-floor / save signature mismatches.
+    let (repository, root) = setup_repository().await;
+    let (character_name, file_name) = ("alice", "session");
+    let payload = windowed_payload_with_messages("patch-mtime", 3);
+    save_chat_payload_from_values(&repository, &root, character_name, file_name, &payload, false)
+        .await
+        .expect("save initial payload");
+
+    let tail = repository
+        .get_character_payload_tail_lines(character_name, file_name, 100)
+        .await
+        .expect("tail");
+    let stale = ChatPayloadCursor {
+        modified_millis: tail.cursor.modified_millis + 5000,
+        ..tail.cursor
+    };
+
+    let new_line = serde_json::to_string(&json!({
+        "name": "User", "is_user": true, "send_date": "2026-01-01T00:00:09.000Z",
+        "mes": "after drift", "extra": {},
+    }))
+    .expect("serialize");
+    repository
+        .patch_chat_payload_windowed(
+            character_name,
+            file_name,
+            stale,
+            tail.header.clone(),
+            ChatPayloadPatchOp::Append { lines: vec![new_line] },
+            false,
+        )
+        .await
+        .expect("patch must tolerate mtime drift when size is unchanged");
 
     let _ = fs::remove_dir_all(&root).await;
 }

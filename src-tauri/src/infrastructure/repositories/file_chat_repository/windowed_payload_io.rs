@@ -260,18 +260,22 @@ pub(super) fn verify_cursor_signature(
     metadata: &std::fs::Metadata,
 ) -> Result<(), DomainError> {
     let (size, modified_millis) = file_signature_from_metadata(metadata)?;
-    if cursor.size != size || cursor.modified_millis != modified_millis {
-        // Surface BOTH signatures + which field diverged so the cause is
-        // diagnosable from the log alone: a size delta means the file content
-        // actually changed (a write landed between cursor mint and use); a
-        // mtime-only delta with identical size points at an out-of-band touch or
-        // mtime instability (e.g. Android external storage) rather than a real
-        // content change. See docs/investigations/windowed-cursor-mismatch.md.
-        let size_changed = cursor.size != size;
-        let mtime_changed = cursor.modified_millis != modified_millis;
+    // Validate SIZE only — the cursor's mtime is intentionally ignored. On Android
+    // sdcardfs/FUSE the file mtime can change with no content change (and at coarse
+    // resolution), which previously produced spurious "cursor signature mismatch"
+    // failures that starved windowed reads/patches (the AI lost recent floors). Size,
+    // together with the line-boundary and header-integrity checks the callers run, is
+    // what actually detects a real content change.
+    // See docs/investigations/windowed-cursor-mismatch.md.
+    if cursor.size != size {
         let detail = format!(
-            "Cursor signature mismatch for {:?}: cursor=(size={}, mtime_ms={}) actual=(size={}, mtime_ms={}) [size_changed={}, mtime_changed={}]",
-            path, cursor.size, cursor.modified_millis, size, modified_millis, size_changed, mtime_changed
+            "Cursor signature mismatch for {:?}: cursor=(size={}, mtime_ms={}) actual=(size={}, mtime_ms={}) [size_changed=true, mtime_changed={}]",
+            path,
+            cursor.size,
+            cursor.modified_millis,
+            size,
+            modified_millis,
+            cursor.modified_millis != modified_millis
         );
         logger::warn(&detail);
         return Err(DomainError::InvalidData(detail));
