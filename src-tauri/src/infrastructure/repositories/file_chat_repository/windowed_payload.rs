@@ -274,7 +274,6 @@ async fn read_payload_before_lines(
     max_lines: usize,
 ) -> Result<ChatPayloadChunk, DomainError> {
     let metadata = read_existing_payload_metadata(path).await?;
-    verify_cursor_signature(path, cursor, &metadata)?;
 
     let (_, header_end_offset) = read_first_line_and_end_offset(path).await?;
 
@@ -292,6 +291,15 @@ async fn read_payload_before_lines(
             path
         )));
     }
+
+    // Fix 2/3: a windowed READ returns the bytes BEFORE `cursor.offset`, which are
+    // unaffected by appends after it or by sdcardfs mtime drift. So we do NOT require
+    // the file to be byte-identical to when the cursor was minted (no strict
+    // signature check). We only require the offset to still be a valid line boundary
+    // in the CURRENT file; a genuinely misaligned cursor (content rewritten before
+    // the offset) still fails here and the caller resyncs by reloading the tail.
+    // See docs/investigations/windowed-cursor-mismatch.md.
+    verify_cursor_offset_is_line_boundary(path, cursor.offset).await?;
 
     let lines_with_offsets =
         read_tail_lines_with_offsets(path, header_end_offset, end_position, max_lines).await?;
