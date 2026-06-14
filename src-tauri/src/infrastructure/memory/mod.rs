@@ -204,6 +204,87 @@ mod tests {
     }
 
     #[test]
+    fn search_multi_term_is_or_combined_not_one_contiguous_phrase() {
+        let s = MemoryStore::open_in_memory().unwrap();
+        s.upsert_entity(
+            &Entity {
+                id: "guyuan".into(),
+                name: "顾远".into(),
+                ..Default::default()
+            },
+            Some(0),
+        )
+        .unwrap();
+        s.insert_timeline_event(&TimelineEvent {
+            event_id: "e1".into(),
+            diegetic_seq: 1,
+            // "白钢城" and "道具" are NOT adjacent here, so wrapping the whole
+            // query as one FTS5 phrase used to match nothing.
+            summary: "顾远在白钢城获得了特殊道具".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        // Multi-keyword: "白钢城" (3-char, FTS) OR "道具" (2-char, LIKE). Either
+        // term present in the summary must surface the event.
+        let hits = s.search("白钢城 道具", 10).unwrap();
+        assert!(
+            hits.iter()
+                .any(|h| h.id == "e1" && h.source == SearchSource::Timeline),
+            "non-adjacent terms must match via OR, not one contiguous phrase"
+        );
+
+        // The entity (name 顾远) must surface even when the query mixes in other
+        // keywords that the entity does not contain.
+        let hits2 = s.search("顾远 白钢城 道具 特性", 10).unwrap();
+        assert!(
+            hits2
+                .iter()
+                .any(|h| h.id == "guyuan" && h.source == SearchSource::Entity),
+            "an entity must match when ANY query term hits its name/aliases"
+        );
+    }
+
+    #[test]
+    fn search_matches_two_char_cjk_term_via_like_fallback() {
+        let s = MemoryStore::open_in_memory().unwrap();
+        s.upsert_entity(
+            &Entity {
+                id: "guyuan".into(),
+                name: "主角".into(),
+                aliases: vec!["顾远".into()],
+                ..Default::default()
+            },
+            Some(0),
+        )
+        .unwrap();
+        // "顾远" is 2 chars — too short for a trigram token, so FTS5 can never
+        // match it. The LIKE fallback must still find it (here, via aliases).
+        let hits = s.search("顾远", 10).unwrap();
+        assert!(
+            hits.iter()
+                .any(|h| h.id == "guyuan" && h.source == SearchSource::Entity),
+            "sub-trigram (<3 char) terms must match through the LIKE fallback"
+        );
+    }
+
+    #[test]
+    fn search_blank_query_returns_no_hits() {
+        let s = MemoryStore::open_in_memory().unwrap();
+        s.upsert_entity(
+            &Entity {
+                id: "guyuan".into(),
+                name: "顾远".into(),
+                ..Default::default()
+            },
+            Some(0),
+        )
+        .unwrap();
+        assert!(s.search("", 10).unwrap().is_empty());
+        assert!(s.search("   ", 10).unwrap().is_empty());
+    }
+
+    #[test]
     fn message_index_resolves_and_clear_all_wipes_derived_data() {
         let s = MemoryStore::open_in_memory().unwrap();
         s.set_message_index("m_a", 0, "sha_a").unwrap();
