@@ -144,6 +144,7 @@ impl FileChatRepository {
         max_lines: usize,
     ) -> Result<ChatPayloadTail, DomainError> {
         let path = self.get_chat_path(character_name, file_name)?;
+        let _read_guard = self.acquire_payload_read_lock(&path).await;
         read_payload_tail_lines(&path, max_lines).await
     }
 
@@ -155,6 +156,7 @@ impl FileChatRepository {
         max_lines: usize,
     ) -> Result<ChatPayloadChunk, DomainError> {
         let path = self.get_chat_path(character_name, file_name)?;
+        let _read_guard = self.acquire_payload_read_lock(&path).await;
         read_payload_before_lines(&path, cursor, max_lines).await
     }
 
@@ -201,6 +203,7 @@ impl FileChatRepository {
         max_lines: usize,
     ) -> Result<ChatPayloadTail, DomainError> {
         let path = self.get_group_chat_path(chat_id)?;
+        let _read_guard = self.acquire_payload_read_lock(&path).await;
         read_payload_tail_lines(&path, max_lines).await
     }
 
@@ -211,6 +214,7 @@ impl FileChatRepository {
         max_lines: usize,
     ) -> Result<ChatPayloadChunk, DomainError> {
         let path = self.get_group_chat_path(chat_id)?;
+        let _read_guard = self.acquire_payload_read_lock(&path).await;
         read_payload_before_lines(&path, cursor, max_lines).await
     }
 

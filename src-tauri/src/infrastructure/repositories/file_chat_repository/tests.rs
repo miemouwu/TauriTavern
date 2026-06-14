@@ -2532,6 +2532,62 @@ async fn patch_chat_payload_windowed_rejects_missing_integrity_when_existing_has
     let _ = fs::remove_dir_all(&root).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn windowed_tail_read_waits_for_in_flight_write_lock() {
+    // Regression: windowed reads must serialize against writes on the same file.
+    // Before the fix, get_chat_payload_tail_lines read lock-free and could observe
+    // a half-written file (torn read -> "early eof" / mid-UTF-8 / cursor signature
+    // mismatch, observed on Android sdcardfs under concurrent extension reads).
+    let (repository, root) = setup_repository().await;
+
+    let character_name = "alice";
+    let file_name = "session";
+    save_chat_payload_from_values(
+        &repository,
+        &root,
+        character_name,
+        file_name,
+        &payload_with_integrity("rw-lock"),
+        false,
+    )
+    .await
+    .expect("save initial payload");
+
+    let path = repository
+        .get_chat_path(character_name, file_name)
+        .expect("resolve chat path");
+
+    let repository = Arc::new(repository);
+
+    // Simulate a write in flight by holding the per-path write lock.
+    let write_guard = repository.acquire_payload_write_lock(&path).await;
+
+    let reader = Arc::clone(&repository);
+    let handle = tokio::spawn(async move {
+        reader
+            .get_chat_payload_tail_lines(character_name, file_name, 100)
+            .await
+    });
+
+    // Give the read ample time to run. If reads don't take the lock, it finishes
+    // here while the "write" is still in flight.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        !handle.is_finished(),
+        "windowed tail read completed while a write lock was held — reads do not serialize against writes (torn-read race)"
+    );
+
+    // Releasing the write lock must let the read proceed and succeed.
+    drop(write_guard);
+    let tail = handle
+        .await
+        .expect("join read task")
+        .expect("tail read succeeds once the write lock is released");
+    assert_eq!(tail.lines.len(), 1);
+
+    let _ = fs::remove_dir_all(&root).await;
+}
+
 async fn save_group_chat_payload_from_values(
     repository: &FileChatRepository,
     root: &PathBuf,

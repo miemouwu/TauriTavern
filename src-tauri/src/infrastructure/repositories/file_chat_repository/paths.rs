@@ -79,6 +79,18 @@ impl FileChatRepository {
         lock.lock_owned().await
     }
 
+    /// Acquire the per-path lock for a READ. Reads share the same lock as writes
+    /// so a windowed read can never observe a half-written file: a torn read
+    /// surfaces as "early eof" (read past a `set_len` truncation), a mid-UTF-8
+    /// slice, or a cursor signature mismatch (see
+    /// docs/investigations/windowed-cursor-mismatch.md). A plain Mutex (not
+    /// RwLock) keeps it simple — windowed reads are short; if read concurrency
+    /// ever matters, upgrade `path_write_locks` to an RwLock and take a read
+    /// guard here.
+    pub(super) async fn acquire_payload_read_lock(&self, path: &Path) -> OwnedMutexGuard<()> {
+        self.acquire_payload_write_lock(path).await
+    }
+
     pub(super) async fn acquire_payload_rename_locks(
         &self,
         old_path: &Path,
