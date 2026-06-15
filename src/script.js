@@ -36,6 +36,7 @@ import {
 } from './scripts/tauri/chat/windowed-state.js';
 import {
     buildGenerationChatWithBackfill,
+    describeWindowedCursorError,
     isWindowedCursorInvalidError,
 } from './scripts/tauri/chat/prompt-backfill.js';
 import { extension_prompt_roles, extension_prompt_types } from './scripts/extension-prompts.js';
@@ -168,7 +169,6 @@ import {
     selected_proxy,
     initOpenAI,
 } from './scripts/openai.js';
-import { stripCommandErrorPrefixes } from './scripts/util/command-error-utils.js';
 
 import {
     generateNovelWithStreaming,
@@ -5164,8 +5164,7 @@ async function GenerateInternal(type, { automatic_trigger, force_name2, quiet_pr
                 backfillResult.added.forEach(ensureMessageMediaIsArray);
             } catch (error) {
                 if (isWindowedCursorInvalidError(error)) {
-                    const rawMessage = error?.message ?? error;
-                    const details = stripCommandErrorPrefixes(rawMessage) || t`Windowed chat cursor is invalid`;
+                    const details = describeWindowedCursorError(error) || t`Windowed chat cursor is invalid`;
                     const reloadHint = t`Reload the chat to resync.`;
 
                     toastr.warning(

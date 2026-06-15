@@ -86,6 +86,17 @@ function extractErrorMessage(error) {
         return error.message;
     }
 
+    // Tauri serializes the backend CommandError enum externally-tagged, e.g.
+    // `{ BadRequest: "Cursor signature mismatch for ..." }`. Such objects have
+    // no `.message`, so unwrap a single string payload instead of stringifying
+    // the whole object (which renders as "[object Object]" in the UI).
+    if (typeof error === 'object') {
+        const values = Object.values(error);
+        if (values.length === 1 && typeof values[0] === 'string') {
+            return values[0];
+        }
+    }
+
     try {
         return JSON.stringify(error);
     } catch {
@@ -103,6 +114,17 @@ export function isWindowedCursorInvalidError(error) {
         || normalized.includes('line boundary')
         || normalized.includes('out of bounds')
         || normalized.includes('before chat payload body');
+}
+
+/**
+ * Builds a human-readable detail string for a windowed-cursor failure toast.
+ * Routes through the same extraction used for detection so the UI never renders
+ * an externally-tagged CommandError object as "[object Object]".
+ * @param {unknown} error
+ * @returns {string}
+ */
+export function describeWindowedCursorError(error) {
+    return stripCommandErrorPrefixes(extractErrorMessage(error));
 }
 
 function estimateChatChars(messages) {

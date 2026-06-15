@@ -57,3 +57,37 @@ test('prompt-backfill: isWindowedCursorInvalidError requires known cursor failur
     assert.equal(isWindowedCursorInvalidError('cursor is present but message is unrelated'), false);
     assert.equal(isWindowedCursorInvalidError({ message: 'cursor: ???' }), false);
 });
+
+test('prompt-backfill: isWindowedCursorInvalidError matches externally-tagged CommandError objects', async () => {
+    const mod = await importFresh(path.join(REPO_ROOT, 'src/scripts/tauri/chat/prompt-backfill.js'));
+    const { isWindowedCursorInvalidError } = mod;
+
+    // Shape produced by Tauri serializing `CommandError::BadRequest(msg)`.
+    assert.equal(
+        isWindowedCursorInvalidError({ BadRequest: 'Cursor signature mismatch for /tmp/chat.jsonl' }),
+        true,
+    );
+});
+
+test('prompt-backfill: describeWindowedCursorError unwraps CommandError objects (no [object Object])', async () => {
+    const mod = await importFresh(path.join(REPO_ROOT, 'src/scripts/tauri/chat/prompt-backfill.js'));
+    const { describeWindowedCursorError } = mod;
+
+    const details = describeWindowedCursorError({ BadRequest: 'Cursor signature mismatch for /tmp/chat.jsonl' });
+    assert.ok(!details.includes('[object Object]'), 'must not render the raw object');
+    assert.ok(details.includes('Cursor signature mismatch'), 'must surface the real message');
+});
+
+test('prompt-backfill: describeWindowedCursorError handles strings and Error instances', async () => {
+    const mod = await importFresh(path.join(REPO_ROOT, 'src/scripts/tauri/chat/prompt-backfill.js'));
+    const { describeWindowedCursorError } = mod;
+
+    assert.equal(
+        describeWindowedCursorError(new Error('Cursor offset is out of bounds')),
+        'Cursor offset is out of bounds',
+    );
+    assert.equal(
+        describeWindowedCursorError('Bad request: Cursor signature mismatch'),
+        'Cursor signature mismatch',
+    );
+});
