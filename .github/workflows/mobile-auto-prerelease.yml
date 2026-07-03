@@ -156,7 +156,7 @@ jobs:
           - name: android
             platform: ubuntu-latest
             mobile: android
-            args: --verbose --apk
+            args: --verbose --apk --target aarch64
 
     runs-on: ${{ matrix.platform }}
     name: build-${{ matrix.name }}
@@ -187,7 +187,7 @@ jobs:
         if: matrix.mobile == 'android'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - name: Install Rust toolchain (iOS target)
         if: matrix.mobile == 'ios'
