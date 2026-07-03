@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, UNIX_EPOCH};
 
 use rand::random;
 use serde_json::{Value, json};
 use tokio::fs;
+use tokio::time::sleep;
 
 use crate::domain::errors::DomainError;
 use crate::domain::models::filename::sanitize_filename;
@@ -2599,6 +2601,45 @@ async fn save_chat_payload_from_values(
         .await
 }
 
+fn metadata_modified_millis(metadata: &std::fs::Metadata) -> i64 {
+    metadata
+        .modified()
+        .expect("metadata has modified time")
+        .duration_since(UNIX_EPOCH)
+        .expect("modified after epoch")
+        .as_millis()
+        .try_into()
+        .expect("modified millis fits i64")
+}
+
+async fn rewrite_same_payload_until_mtime_changes(path: &Path, original_modified_millis: i64) {
+    let bytes = fs::read(path).await.expect("read payload bytes");
+
+    for _ in 0..25 {
+        sleep(Duration::from_millis(3)).await;
+        fs::write(path, &bytes)
+            .await
+            .expect("rewrite same payload bytes");
+        let metadata = fs::metadata(path).await.expect("read metadata");
+        if metadata.len() == bytes.len() as u64
+            && metadata_modified_millis(&metadata) != original_modified_millis
+        {
+            return;
+        }
+    }
+
+    panic!("mtime did not change after rewriting same payload");
+}
+
+async fn append_jsonl_line(path: &Path, value: Value) {
+    let mut text = fs::read_to_string(path).await.expect("read payload text");
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&serde_json::to_string(&value).expect("serialize appended line"));
+    fs::write(path, text).await.expect("append payload line");
+}
+
 #[tokio::test]
 async fn patch_chat_payload_windowed_appends_and_rewrites_tail() {
     let (repository, root) = setup_repository().await;
@@ -2740,6 +2781,216 @@ async fn patch_chat_payload_windowed_appends_and_rewrites_tail() {
         .map(|line| serde_json::from_str::<Value>(line).expect("parse json line"))
         .collect::<Vec<_>>();
     assert_eq!(values.len(), 2);
+
+    let _ = fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn windowed_before_read_and_patch_tolerate_mtime_only_drift() {
+    let (repository, root) = setup_repository().await;
+
+    let character_name = "alice";
+    let file_name = "session";
+
+    let mut payload = vec![payload_with_integrity("mtime-a")[0].clone()];
+    for index in 0..5 {
+        payload.push(json!({
+            "name": "User",
+            "is_user": true,
+            "send_date": format!("2026-01-01T00:00:0{}.000Z", index),
+            "mes": format!("message {}", index),
+            "extra": {},
+        }));
+    }
+
+    save_chat_payload_from_values(
+        &repository,
+        &root,
+        character_name,
+        file_name,
+        &payload,
+        false,
+    )
+    .await
+    .expect("save initial payload");
+
+    let tail = repository
+        .get_chat_payload_tail_lines(character_name, file_name, 2)
+        .await
+        .expect("get tail");
+    assert_eq!(tail.lines.len(), 2);
+
+    let path = repository
+        .resolve_character_chat_path(character_name, file_name)
+        .await
+        .expect("resolve chat path");
+    rewrite_same_payload_until_mtime_changes(&path, tail.cursor.modified_millis).await;
+
+    let chunk = repository
+        .get_chat_payload_before_lines(character_name, file_name, tail.cursor, 100)
+        .await
+        .expect("before read tolerates mtime-only drift");
+    assert_eq!(chunk.lines.len(), 3);
+
+    let appended = serde_json::to_string(&json!({
+        "name": "User",
+        "is_user": true,
+        "send_date": "2026-01-01T00:00:09.000Z",
+        "mes": "appended",
+        "extra": {},
+    }))
+    .expect("serialize appended message");
+    repository
+        .patch_chat_payload_windowed(
+            character_name,
+            file_name,
+            tail.cursor,
+            tail.header,
+            ChatPayloadPatchOp::Append {
+                lines: vec![appended],
+            },
+            tail.lines.len(),
+            false,
+        )
+        .await
+        .expect("patch tolerates mtime-only drift");
+
+    let _ = fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn windowed_before_read_tolerates_appends_after_cursor() {
+    let (repository, root) = setup_repository().await;
+
+    let character_name = "alice";
+    let file_name = "session";
+
+    let mut payload = vec![payload_with_integrity("append-a")[0].clone()];
+    for index in 0..5 {
+        payload.push(json!({
+            "name": "User",
+            "is_user": true,
+            "send_date": format!("2026-01-01T00:00:0{}.000Z", index),
+            "mes": format!("message {}", index),
+            "extra": {},
+        }));
+    }
+
+    save_chat_payload_from_values(
+        &repository,
+        &root,
+        character_name,
+        file_name,
+        &payload,
+        false,
+    )
+    .await
+    .expect("save initial payload");
+
+    let tail = repository
+        .get_chat_payload_tail_lines(character_name, file_name, 2)
+        .await
+        .expect("get tail");
+    assert_eq!(tail.lines.len(), 2);
+
+    let path = repository
+        .resolve_character_chat_path(character_name, file_name)
+        .await
+        .expect("resolve chat path");
+    append_jsonl_line(
+        &path,
+        json!({
+            "name": "User",
+            "is_user": true,
+            "send_date": "2026-01-01T00:00:09.000Z",
+            "mes": "post-cursor append",
+            "extra": {},
+        }),
+    )
+    .await;
+
+    let chunk = repository
+        .get_chat_payload_before_lines(character_name, file_name, tail.cursor, 100)
+        .await
+        .expect("before read tolerates post-cursor append");
+    assert_eq!(chunk.lines.len(), 3);
+    assert_eq!(
+        serde_json::from_str::<Value>(&chunk.lines[0]).expect("parse line")["mes"],
+        "message 0"
+    );
+
+    let _ = fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn windowed_before_read_reanchors_cursor_after_header_resize() {
+    let (repository, root) = setup_repository().await;
+
+    let character_name = "alice";
+    let file_name = "session";
+
+    let mut payload = vec![payload_with_integrity("header-a")[0].clone()];
+    for index in 0..5 {
+        payload.push(json!({
+            "name": "User",
+            "is_user": true,
+            "send_date": format!("2026-01-01T00:00:0{}.000Z", index),
+            "mes": format!("message {}", index),
+            "extra": {},
+        }));
+    }
+
+    save_chat_payload_from_values(
+        &repository,
+        &root,
+        character_name,
+        file_name,
+        &payload,
+        false,
+    )
+    .await
+    .expect("save initial payload");
+
+    let tail = repository
+        .get_chat_payload_tail_lines(character_name, file_name, 2)
+        .await
+        .expect("get tail");
+    assert_eq!(tail.lines.len(), 2);
+    assert!(tail.cursor.header_end > 0);
+
+    let path = repository
+        .resolve_character_chat_path(character_name, file_name)
+        .await
+        .expect("resolve chat path");
+    let original = fs::read_to_string(&path).await.expect("read payload");
+    let body = original
+        .lines()
+        .skip(1)
+        .map(str::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let resized_header = serde_json::to_string(&json!({
+        "chat_metadata": {
+            "integrity": "header-a",
+            "little_white_box": "x".repeat(4096),
+        },
+        "user_name": "unused",
+        "character_name": "unused",
+    }))
+    .expect("serialize resized header");
+    fs::write(&path, format!("{resized_header}\n{body}"))
+        .await
+        .expect("rewrite header");
+
+    let chunk = repository
+        .get_chat_payload_before_lines(character_name, file_name, tail.cursor, 100)
+        .await
+        .expect("before read reanchors across header resize");
+    assert_eq!(chunk.lines.len(), 3);
+    assert_eq!(
+        serde_json::from_str::<Value>(&chunk.lines[0]).expect("parse line")["mes"],
+        "message 0"
+    );
 
     let _ = fs::remove_dir_all(&root).await;
 }

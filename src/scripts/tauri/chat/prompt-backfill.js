@@ -46,7 +46,8 @@ function buildCursorSignature(cursor) {
     const offset = cursor?.offset ?? '';
     const size = cursor?.size ?? '';
     const modifiedMillis = cursor?.modifiedMillis ?? cursor?.modified_millis ?? '';
-    return `${offset}:${size}:${modifiedMillis}`;
+    const headerEnd = cursor?.headerEnd ?? cursor?.header_end ?? '';
+    return `${offset}:${size}:${modifiedMillis}:${headerEnd}`;
 }
 
 function buildBeforePageCacheKey(windowState, cursor, maxLines) {
@@ -86,6 +87,13 @@ function extractErrorMessage(error) {
         return error.message;
     }
 
+    if (typeof error === 'object') {
+        const values = Object.values(error);
+        if (values.length === 1 && typeof values[0] === 'string') {
+            return values[0];
+        }
+    }
+
     try {
         return JSON.stringify(error);
     } catch {
@@ -103,6 +111,10 @@ export function isWindowedCursorInvalidError(error) {
         || normalized.includes('line boundary')
         || normalized.includes('out of bounds')
         || normalized.includes('before chat payload body');
+}
+
+export function describeWindowedCursorError(error) {
+    return stripCommandErrorPrefixes(extractErrorMessage(error));
 }
 
 function estimateChatChars(messages) {

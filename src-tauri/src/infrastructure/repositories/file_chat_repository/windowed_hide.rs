@@ -179,7 +179,7 @@ async fn hide_payload_before_cursor_internal(
     .await?;
 
     if cursor.offset == header_end_offset {
-        return cursor_from_metadata(cursor.offset, &metadata);
+        return cursor_from_metadata(cursor.offset, header_end_offset, &metadata);
     }
 
     let temp_path = FileChatRepository::temp_payload_path(path);
@@ -274,5 +274,5 @@ async fn hide_payload_before_cursor_internal(
     ));
 
     let metadata = read_existing_payload_metadata(path).await?;
-    cursor_from_metadata(new_cursor_offset, &metadata)
+    cursor_from_metadata(new_cursor_offset, header_end_offset, &metadata)
 }

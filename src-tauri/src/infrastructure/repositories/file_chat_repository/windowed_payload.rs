@@ -146,6 +146,7 @@ impl FileChatRepository {
         let path = self
             .resolve_character_chat_path(character_name, file_name)
             .await?;
+        let _read_guard = self.acquire_payload_read_lock(&path).await;
         read_payload_tail_lines(&path, max_lines).await
     }
 
@@ -159,6 +160,7 @@ impl FileChatRepository {
         let path = self
             .resolve_character_chat_path(character_name, file_name)
             .await?;
+        let _read_guard = self.acquire_payload_read_lock(&path).await;
         read_payload_before_lines(&path, cursor, max_lines).await
     }
 
@@ -216,6 +218,7 @@ impl FileChatRepository {
         max_lines: usize,
     ) -> Result<ChatPayloadTail, DomainError> {
         let path = self.get_group_chat_path(chat_id)?;
+        let _read_guard = self.acquire_payload_read_lock(&path).await;
         read_payload_tail_lines(&path, max_lines).await
     }
 
@@ -226,6 +229,7 @@ impl FileChatRepository {
         max_lines: usize,
     ) -> Result<ChatPayloadChunk, DomainError> {
         let path = self.get_group_chat_path(chat_id)?;
+        let _read_guard = self.acquire_payload_read_lock(&path).await;
         read_payload_before_lines(&path, cursor, max_lines).await
     }
 
@@ -283,7 +287,7 @@ async fn read_payload_tail_lines(
             .into_iter()
             .map(|(_, line)| line)
             .collect(),
-        cursor: cursor_from_metadata(cursor_offset, &metadata)?,
+        cursor: cursor_from_metadata(cursor_offset, header_end_offset, &metadata)?,
         has_more_before: cursor_offset > header_end_offset,
     })
 }
@@ -294,24 +298,26 @@ async fn read_payload_before_lines(
     max_lines: usize,
 ) -> Result<ChatPayloadChunk, DomainError> {
     let metadata = read_existing_payload_metadata(path).await?;
-    verify_cursor_signature(path, cursor, &metadata)?;
 
     let (_, header_end_offset) = read_first_line_and_end_offset(path).await?;
+    let effective_offset = effective_cursor_offset(&cursor, header_end_offset);
 
-    if cursor.offset > metadata.len() {
+    if effective_offset > metadata.len() {
         return Err(DomainError::InvalidData(format!(
             "Cursor offset is out of bounds for {:?}",
             path
         )));
     }
 
-    let end_position = cursor.offset;
+    let end_position = effective_offset;
     if end_position < header_end_offset {
         return Err(DomainError::InvalidData(format!(
             "Cursor offset is before chat payload body for {:?}",
             path
         )));
     }
+
+    verify_cursor_offset_is_line_boundary(path, effective_offset).await?;
 
     let lines_with_offsets =
         read_tail_lines_with_offsets(path, header_end_offset, end_position, max_lines).await?;
@@ -326,7 +332,7 @@ async fn read_payload_before_lines(
             .into_iter()
             .map(|(_, line)| line)
             .collect(),
-        cursor: cursor_from_metadata(new_offset, &metadata)?,
+        cursor: cursor_from_metadata(new_offset, header_end_offset, &metadata)?,
         has_more_before: new_offset > header_end_offset,
     })
 }
@@ -369,7 +375,7 @@ async fn save_payload_windowed_internal(
         let metadata = read_existing_payload_metadata(path).await?;
 
         let header_end_offset = (header.as_bytes().len() + 1) as u64;
-        return cursor_from_metadata(header_end_offset, &metadata);
+        return cursor_from_metadata(header_end_offset, header_end_offset, &metadata);
     }
 
     let metadata = existing_metadata.unwrap();
@@ -532,9 +538,13 @@ async fn save_payload_windowed_internal(
 
     let metadata = read_existing_payload_metadata(path).await?;
 
+    let new_header_end_offset = if header_changed {
+        (header.as_bytes().len() + 1) as u64
+    } else {
+        existing_header_end_offset
+    };
     let new_cursor_offset = match (header_changed, header_only, has_lines) {
         (true, _, _) => {
-            let new_header_end_offset = (header.as_bytes().len() + 1) as u64;
             let preserved_prefix_bytes = cursor.offset.saturating_sub(existing_header_end_offset);
             new_header_end_offset + preserved_prefix_bytes
         }
@@ -542,5 +552,5 @@ async fn save_payload_windowed_internal(
         _ => cursor.offset,
     };
 
-    cursor_from_metadata(new_cursor_offset, &metadata)
+    cursor_from_metadata(new_cursor_offset, new_header_end_offset, &metadata)
 }

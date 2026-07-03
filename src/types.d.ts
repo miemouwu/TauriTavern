@@ -841,10 +841,87 @@ type TauriTavernLlmApiLogsApi = {
     setKeep: (value: number) => Promise<void>;
 };
 
+type TauriTavernDevLongRunStatus =
+    | 'running'
+    | 'completed'
+    | 'completed_with_errors'
+    | 'failed'
+    | 'cancelled';
+
+type TauriTavernDevLongRunOptions = {
+    turns?: number;
+    promptTemplate?: string;
+    userPromptTemplate?: string;
+    timeoutMs?: number;
+    settleMs?: number;
+    tailLimit?: number;
+    generationType?: string;
+    generationOptions?: Record<string, any>;
+    collectShujuku?: boolean;
+    shujukuNamespace?: string;
+    stopOnError?: boolean;
+    verifyMessageGrowth?: boolean;
+};
+
+type TauriTavernDevLongRunError = {
+    name: string;
+    message: string;
+    stack?: string;
+};
+
+type TauriTavernDevLongRunTurnReport = {
+    turn: number;
+    prompt: string;
+    startedAt: string;
+    finishedAt: string;
+    messageDelta: number;
+    generationResult?: any;
+    before: any;
+    after: any;
+    diagnostics: Record<string, any>;
+    error?: TauriTavernDevLongRunError;
+};
+
+type TauriTavernDevLongRunReport = {
+    id: string;
+    status: TauriTavernDevLongRunStatus;
+    startedAt: string;
+    finishedAt: string | null;
+    options: Required<Pick<
+        TauriTavernDevLongRunOptions,
+        'turns' | 'timeoutMs' | 'settleMs' | 'generationType' | 'collectShujuku' | 'shujukuNamespace' | 'stopOnError' | 'verifyMessageGrowth'
+    >>;
+    turns: TauriTavernDevLongRunTurnReport[];
+    errors: Array<{ turn: number; error: TauriTavernDevLongRunError }>;
+    cancelReason?: string;
+};
+
+type TauriTavernDevLongRunApi = {
+    start: (options?: TauriTavernDevLongRunOptions) => Promise<TauriTavernDevLongRunReport>;
+    cancel: (reason?: string) => Promise<{ cancelled: boolean; reason: string }>;
+    status: () => {
+        running: boolean;
+        id?: string;
+        currentTurn?: number;
+        requestedTurns?: number;
+        startedAt?: string;
+        cancelRequested?: boolean;
+        lastReportSummary?: null | {
+            id: string;
+            status: TauriTavernDevLongRunStatus;
+            turns: number;
+            startedAt: string;
+            finishedAt: string | null;
+        };
+    };
+    getLastReport: () => TauriTavernDevLongRunReport | null;
+};
+
 type TauriTavernDevApi = {
     frontendLogs: TauriTavernFrontendLogsApi;
     backendLogs: TauriTavernBackendLogsApi;
     llmApiLogs: TauriTavernLlmApiLogsApi;
+    longRun: TauriTavernDevLongRunApi;
 };
 
 type TauriTavernWorldInfoApi = {

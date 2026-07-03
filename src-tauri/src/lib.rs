@@ -197,6 +197,9 @@ pub fn run() {
                 thumbnail_policy,
             )?;
 
+            #[cfg(debug_assertions)]
+            install_dev_long_run_autostart(&_main_window);
+
             #[cfg(target_os = "windows")]
             {
                 let close_to_tray_on_close =
@@ -335,6 +338,191 @@ fn create_main_window(
     }
 
     Ok(window)
+}
+
+#[cfg(debug_assertions)]
+fn install_dev_long_run_autostart(window: &tauri::webview::WebviewWindow) {
+    let turns = match std::env::var("TAURITAVERN_DEV_LONGRUN_TURNS") {
+        Ok(raw) => match raw.trim().parse::<u32>() {
+            Ok(value) if value > 0 => value,
+            _ => {
+                logger::error("TAURITAVERN_DEV_LONGRUN_TURNS must be a positive integer");
+                return;
+            }
+        },
+        Err(_) => return,
+    };
+
+    let timeout_ms = match parse_optional_positive_env_u32("TAURITAVERN_DEV_LONGRUN_TIMEOUT_MS") {
+        Some(value) => value,
+        None => return,
+    };
+    let settle_ms = match parse_optional_positive_env_u32("TAURITAVERN_DEV_LONGRUN_SETTLE_MS") {
+        Some(value) => value,
+        None => return,
+    };
+    let report_url = std::env::var("TAURITAVERN_DEV_LONGRUN_REPORT_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let prompt_template = std::env::var("TAURITAVERN_DEV_LONGRUN_PROMPT_TEMPLATE")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let collect_shujuku = parse_optional_bool_env("TAURITAVERN_DEV_LONGRUN_SHUJUKU");
+    let namespace = std::env::var("TAURITAVERN_DEV_LONGRUN_NAMESPACE")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+
+    let mut options = serde_json::json!({
+        "turns": turns,
+    });
+
+    if let Some(timeout_ms) = timeout_ms {
+        options["timeoutMs"] = serde_json::json!(timeout_ms);
+    }
+    if let Some(settle_ms) = settle_ms {
+        options["settleMs"] = serde_json::json!(settle_ms);
+    }
+    if let Some(prompt_template) = prompt_template {
+        options["promptTemplate"] = serde_json::json!(prompt_template);
+    }
+    if let Some(collect_shujuku) = collect_shujuku {
+        options["collectShujuku"] = serde_json::json!(collect_shujuku);
+    }
+    if let Some(namespace) = namespace {
+        options["shujukuNamespace"] = serde_json::json!(namespace);
+    }
+
+    let options_json =
+        serde_json::to_string(&options).unwrap_or_else(|_| "{\"turns\":1}".to_string());
+    let report_url_json = serde_json::to_string(&report_url).unwrap_or_else(|_| "null".to_string());
+    let script = format!(
+        r#"
+(() => {{
+    const options = {options_json};
+    const reportUrl = {report_url_json};
+
+    try {{
+        localStorage.setItem('tt:devConsoleCapture', '1');
+    }} catch (error) {{
+        console.debug('[TauriTavern] dev long-run console capture bootstrap failed', error);
+    }}
+
+    const postReport = async (payload) => {{
+        if (!reportUrl) {{
+            return;
+        }}
+        try {{
+            await fetch(reportUrl, {{
+                method: 'POST',
+                headers: {{ 'content-type': 'application/json' }},
+                body: JSON.stringify(payload),
+            }});
+        }} catch (error) {{
+            console.error('[TauriTavern] dev long-run report POST failed', error);
+        }}
+    }};
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const waitForLongRun = async () => {{
+        const ready = window.__TAURITAVERN__?.ready ?? window.__TAURITAVERN_MAIN_READY__;
+        if (ready?.then) {{
+            await ready;
+        }}
+        for (let attempt = 0; attempt < 240; attempt += 1) {{
+            if (window.__TAURITAVERN__?.api?.dev?.longRun?.start) {{
+                return;
+            }}
+            await sleep(250);
+        }}
+        throw new Error('TauriTavern dev longRun API did not become ready');
+    }};
+
+    const waitForSillyTavernContext = async () => {{
+        for (let attempt = 0; attempt < 240; attempt += 1) {{
+            if (typeof window.SillyTavern?.getContext === 'function') {{
+                return;
+            }}
+            await sleep(250);
+        }}
+        throw new Error('SillyTavern context API did not become ready');
+    }};
+
+    setTimeout(async () => {{
+        try {{
+            await waitForLongRun();
+            await waitForSillyTavernContext();
+            const report = await window.__TAURITAVERN__.api.dev.longRun.start(options);
+            window.__TAURITAVERN_DEV_LONGRUN_REPORT__ = report;
+            try {{
+                localStorage.setItem('tt:dev:longRun:lastReport', JSON.stringify(report));
+            }} catch (error) {{
+                console.debug('[TauriTavern] dev long-run localStorage write failed', error);
+            }}
+            await postReport(report);
+        }} catch (error) {{
+            const payload = {{
+                id: `env-autostart-${{Date.now()}}`,
+                status: 'error',
+                options,
+                turns: [],
+                errors: [{{
+                    turn: 0,
+                    message: error instanceof Error ? error.message : String(error),
+                    stack: error instanceof Error ? error.stack : undefined,
+                }}],
+                startedAt: Date.now(),
+                finishedAt: Date.now(),
+            }};
+            window.__TAURITAVERN_DEV_LONGRUN_REPORT__ = payload;
+            await postReport(payload);
+        }}
+    }}, 0);
+}})();
+"#
+    );
+
+    if let Err(error) = window.eval(&script) {
+        logger::error(&format!(
+            "Failed to install dev longRun autostart script: {}",
+            error
+        ));
+    } else {
+        logger::info(&format!(
+            "Installed dev longRun autostart for {} turn(s)",
+            turns
+        ));
+    }
+}
+
+#[cfg(debug_assertions)]
+fn parse_optional_positive_env_u32(name: &str) -> Option<Option<u32>> {
+    match std::env::var(name) {
+        Ok(raw) => match raw.trim().parse::<u32>() {
+            Ok(value) if value > 0 => Some(Some(value)),
+            _ => {
+                logger::error(&format!("{} must be a positive integer", name));
+                None
+            }
+        },
+        Err(_) => Some(None),
+    }
+}
+
+#[cfg(debug_assertions)]
+fn parse_optional_bool_env(name: &str) -> Option<bool> {
+    let raw = std::env::var(name).ok()?;
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => {
+            logger::warn(&format!(
+                "{} must be one of true/false/1/0/yes/no/on/off; ignoring it",
+                name
+            ));
+            None
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]

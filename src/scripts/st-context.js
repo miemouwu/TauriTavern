@@ -1,5 +1,7 @@
 import {
     activateSendButtons,
+    active_character,
+    active_group,
     addOneMessage,
     appendMediaToMessage,
     callPopup,
@@ -128,6 +130,8 @@ export function getContext() {
         name2,
         characterId: this_chid,
         groupId: selected_group,
+        activeCharacter: active_character,
+        activeGroup: active_group,
         chatId: selected_group
             ? groups.find(x => x.id == selected_group)?.chat_id
             : (characters[this_chid]?.chat),

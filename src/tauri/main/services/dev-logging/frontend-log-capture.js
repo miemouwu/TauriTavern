@@ -477,6 +477,17 @@ export function getFrontendLogEntries() {
 }
 
 /**
+ * @param {FrontendLogLevel} level
+ * @param {string} message
+ * @param {string | undefined} [target]
+ */
+export function appendFrontendLogEntry(level, message, target) {
+    const normalizedLevel = ['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info';
+    const normalizedTarget = typeof target === 'string' && target.trim() ? target.trim() : undefined;
+    push(/** @type {FrontendLogLevel} */ (normalizedLevel), message, normalizedTarget);
+}
+
+/**
  * @param {(entry: FrontendLogEntry) => void} handler
  */
 export function subscribeFrontendLogs(handler) {

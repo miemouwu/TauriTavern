@@ -75,6 +75,10 @@ impl FileChatRepository {
         lock.lock_owned().await
     }
 
+    pub(super) async fn acquire_payload_read_lock(&self, path: &Path) -> OwnedMutexGuard<()> {
+        self.acquire_payload_write_lock(path).await
+    }
+
     pub(super) async fn acquire_payload_rename_locks(
         &self,
         old_path: &Path,

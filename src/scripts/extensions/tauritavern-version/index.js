@@ -170,6 +170,68 @@ async function onExportDebugBundleClick() {
     }
 }
 
+function buildMobileDebugSnapshotContent(snapshot) {
+    const root = document.createElement('div');
+    root.className = 'ttv-mobile-debug-snapshot';
+
+    const pre = document.createElement('pre');
+    pre.textContent = JSON.stringify(snapshot, null, 2);
+    root.appendChild(pre);
+
+    return root;
+}
+
+async function onMobileDebugSnapshotClick() {
+    const $btn = $('#tauritavern_mobile_debug_snapshot');
+    const $icon = $btn.find('i');
+    const $text = $btn.find('span');
+    const defaultText = String($text.data('defaultLabel') || $text.text()).trim();
+
+    $text.data('defaultLabel', defaultText);
+    $icon.addClass('fa-spin');
+    $text.text(localize('ttv_version.mobile_debug_capturing', 'Capturing...'));
+    $btn.prop('disabled', true);
+
+    try {
+        const devApi = window.__TAURITAVERN__?.api?.dev;
+        if (!devApi?.mobile || typeof devApi.mobile.logSnapshot !== 'function') {
+            throw new Error('TauriTavern host dev API mobile.logSnapshot is unavailable');
+        }
+
+        const snapshot = await devApi.mobile.logSnapshot({ reason: 'manual' });
+        globalThis.toastr?.success?.(
+            localize('ttv_version.mobile_debug_captured', 'Mobile debug snapshot captured.'),
+        );
+
+        await new Popup(
+            buildMobileDebugSnapshotContent(snapshot),
+            POPUP_TYPE.TEXT,
+            localize('ttv_version.mobile_debug_snapshot_title', 'Mobile Debug Snapshot'),
+            {
+                okButton: localize('ttv_version.ok', 'OK'),
+                allowVerticalScrolling: true,
+                allowHorizontalScrolling: true,
+                wide: true,
+                large: true,
+                leftAlign: true,
+            },
+        ).show();
+    } catch (error) {
+        console.error('TauriTavern mobile debug snapshot failed:', error);
+        globalThis.toastr?.error?.(
+            localizeTemplate(
+                'ttv_version.mobile_debug_failed',
+                'Failed to capture mobile debug snapshot: ${0}',
+                toUserFacingErrorText(error) || extractErrorText(error),
+            ),
+        );
+    } finally {
+        $icon.removeClass('fa-spin');
+        $text.text(defaultText);
+        $btn.prop('disabled', false);
+    }
+}
+
 async function openVersionUrl(url) {
     try {
         await openExternalUrl(url);
@@ -475,6 +537,7 @@ jQuery(async () => {
     const html = await renderExtensionTemplateAsync(MODULE_NAME, 'settings', LINKS);
     container.append(html);
     $('#tauritavern_export_debug_bundle').on('click', () => void onExportDebugBundleClick());
+    $('#tauritavern_mobile_debug_snapshot').on('click', () => void onMobileDebugSnapshotClick());
 
     const aboutCaps = resolveIosAboutCapabilities();
     if (aboutCaps && aboutCaps.git_info === false) {

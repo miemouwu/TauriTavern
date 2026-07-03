@@ -48,6 +48,84 @@ fn decodes_tool_call_to_canonical_name() {
 }
 
 #[test]
+fn recovers_tool_call_arguments_with_trailing_prose() {
+    let registry = BuiltinAgentToolRegistry::phase2c();
+    let response = json!({
+        "choices": [{
+            "message": {
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace_write_file",
+                        "arguments": "{\"path\":\"output/main.md\",\"content\":\"hello\"} now writing the file"
+                    }
+                }]
+            }
+        }]
+    });
+
+    let decoded = decode_chat_completion_response(response, registry.specs()).unwrap();
+    assert_eq!(
+        decoded.tool_calls[0].arguments,
+        json!({"path":"output/main.md","content":"hello"})
+    );
+}
+
+#[test]
+fn recovers_tool_call_arguments_from_code_fence() {
+    let registry = BuiltinAgentToolRegistry::phase2c();
+    let response = json!({
+        "choices": [{
+            "message": {
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace_write_file",
+                        "arguments": "```json\n{\"path\":\"output/main.md\",\"content\":\"hello\"}\n```"
+                    }
+                }]
+            }
+        }]
+    });
+
+    let decoded = decode_chat_completion_response(response, registry.specs()).unwrap();
+    assert_eq!(
+        decoded.tool_calls[0].arguments,
+        json!({"path":"output/main.md","content":"hello"})
+    );
+}
+
+#[test]
+fn preserves_unrecoverable_tool_call_arguments_as_string() {
+    let registry = BuiltinAgentToolRegistry::phase2c();
+    let response = json!({
+        "choices": [{
+            "message": {
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace_write_file",
+                        "arguments": "{\"path\":\"output/main.md\""
+                    }
+                }]
+            }
+        }]
+    });
+
+    let decoded = decode_chat_completion_response(response, registry.specs()).unwrap();
+    assert_eq!(
+        decoded.tool_calls[0].arguments,
+        json!("{\"path\":\"output/main.md\"")
+    );
+}
+
+#[test]
 fn rejects_tool_call_without_id() {
     let registry = BuiltinAgentToolRegistry::phase2c();
     let response = json!({
@@ -94,6 +172,33 @@ fn rejects_normalizer_synthetic_tool_call_id() {
             .to_string()
             .contains("provider response is missing tool_call_id")
     );
+}
+
+#[test]
+fn allows_synthetic_tool_call_id_for_openai_compatible_formats() {
+    let registry = BuiltinAgentToolRegistry::phase2c();
+    let response = json!({
+        "choices": [{
+            "message": {
+                "tool_calls": [{
+                    "id": "tool_call_0",
+                    "type": "function",
+                    "function": { "name": "workspace_finish", "arguments": "{}" }
+                }]
+            }
+        }]
+    });
+    let mut report = ChatCompletionNormalizationReport::default();
+    report.record_synthetic_tool_call_id("tool_call_0");
+    let exchange = ChatCompletionExchange {
+        source: ChatCompletionSource::OpenAi,
+        provider_format: ChatCompletionProviderFormat::OpenAiCompatible,
+        normalized_response: NormalizedChatCompletionResponse::from_value(response).unwrap(),
+        normalization_report: report,
+    };
+
+    let decoded = decode_chat_completion_exchange(exchange, registry.specs()).unwrap();
+    assert_eq!(decoded.tool_calls[0].id, "tool_call_0");
 }
 
 #[test]

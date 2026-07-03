@@ -1,7 +1,10 @@
 // @ts-check
 
 import { createBackendLogBridge } from '../services/dev-logging/backend-log-bridge.js';
+import { createMobileDebugApi } from './dev-mobile-debug.js';
+import { createDevLongRunApi } from './dev-long-run.js';
 import {
+    appendFrontendLogEntry,
     getFrontendLogEntries,
     isFrontendConsoleCaptureEnabled,
     setFrontendConsoleCaptureEnabled,
@@ -95,10 +98,14 @@ function createDevApi({ safeInvoke }) {
     const frontendLogs = createFrontendLogsApi({ settings });
     const backendLogs = createBackendLogBridge({ safeInvoke });
     const llmApiLogsBridge = createLlmApiLogBridge({ safeInvoke });
+    const longRun = createDevLongRunApi({ safeInvoke });
+    const mobile = createMobileDebugApi({ appendFrontendLogEntry });
 
     return {
         frontendLogs,
         backendLogs,
+        mobile,
+        longRun,
         async exportBundle() {
             return safeInvoke('devlog_export_bundle', {
                 frontend_entries: getFrontendLogEntries(),

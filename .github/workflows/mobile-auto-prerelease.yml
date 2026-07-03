@@ -157,10 +157,6 @@ jobs:
             platform: ubuntu-latest
             mobile: android
             args: --verbose --apk
-          - name: ios
-            platform: macos-latest
-            mobile: ios
-            args: --verbose --debug
 
     runs-on: ${{ matrix.platform }}
     name: build-${{ matrix.name }}

@@ -117,6 +117,7 @@ pub async fn get_group_chat_payload_tail(
                 offset: 0,
                 size: 0,
                 modified_millis: 0,
+                header_end: 0,
             },
             has_more_before: false,
         }),

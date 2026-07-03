@@ -23,7 +23,7 @@ const api = host?.api;
   - 提供布局契约快照与订阅，并配合 `data-tt-mobile-surface` taxonomy 实现少量 opt-in 即稳定适配。
 - `api.dev`
   - 面向调试、诊断与开发工具。
-  - 提供前端日志、后端日志、LLM API 日志的统一宿主入口。
+  - 提供前端日志、后端日志、LLM API 日志，以及窗口内 long-run 生成压测的统一宿主入口。
 - `api.worldInfo`
   - 面向角色卡作者与世界书相关扩展。
   - 提供最近一次激活结果、实时订阅与 best-effort 条目跳转。

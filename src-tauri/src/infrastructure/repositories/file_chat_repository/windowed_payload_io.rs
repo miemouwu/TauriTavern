@@ -78,6 +78,7 @@ pub(super) fn file_signature_from_metadata(
 
 pub(super) fn cursor_from_metadata(
     offset: u64,
+    header_end: u64,
     metadata: &std::fs::Metadata,
 ) -> Result<ChatPayloadCursor, DomainError> {
     let (size, modified_millis) = file_signature_from_metadata(metadata)?;
@@ -85,7 +86,17 @@ pub(super) fn cursor_from_metadata(
         offset,
         size,
         modified_millis,
+        header_end,
     })
+}
+
+pub(super) fn effective_cursor_offset(cursor: &ChatPayloadCursor, current_header_end: u64) -> u64 {
+    if cursor.header_end == 0 || cursor.offset < cursor.header_end {
+        return cursor.offset;
+    }
+
+    let body_relative = cursor.offset - cursor.header_end;
+    current_header_end.saturating_add(body_relative)
 }
 
 pub(super) fn decode_jsonl_line_bytes(bytes: &[u8]) -> Result<String, DomainError> {
@@ -259,10 +270,15 @@ pub(super) fn verify_cursor_signature(
     metadata: &std::fs::Metadata,
 ) -> Result<(), DomainError> {
     let (size, modified_millis) = file_signature_from_metadata(metadata)?;
-    if cursor.size != size || cursor.modified_millis != modified_millis {
+    if cursor.size != size {
         return Err(DomainError::InvalidData(format!(
-            "Cursor signature mismatch for {:?}",
-            path
+            "Cursor signature mismatch for {:?}: cursor=(size={}, mtime_ms={}) actual=(size={}, mtime_ms={}) [size_changed=true, mtime_changed={}]",
+            path,
+            cursor.size,
+            cursor.modified_millis,
+            size,
+            modified_millis,
+            cursor.modified_millis != modified_millis
         )));
     }
 

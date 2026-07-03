@@ -88,6 +88,18 @@ test('TauriTavern panel slash commands stay wrapper-based', async () => {
     }
 });
 
+test('TauriTavern long-run slash command delegates to the dev API', async () => {
+    const source = await readFile(path.join(REPO_ROOT, 'src/scripts/slash-commands.js'), 'utf8');
+    const longRun = extractCommandBlock(source, 'tt-longrun');
+
+    assert.match(longRun, /aliases:\s*\[\s*['"]longrun['"]\s*\]/);
+    assert.match(longRun, /window\.__TAURITAVERN__\?\.api\?\.dev\?\.longRun/);
+    assert.match(longRun, /\.start\(\{/);
+    assert.match(longRun, /\bturns\b/);
+    assert.match(longRun, /\bpromptTemplate\b/);
+    assert.doesNotMatch(longRun, /SillyTavern\.getContext|context\.generate|Generate\(/);
+});
+
 test('regenerate and swipe commands preserve generation gate semantics', async () => {
     const source = await readFile(path.join(REPO_ROOT, 'src/scripts/slash-commands.js'), 'utf8');
 

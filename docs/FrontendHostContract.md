@@ -134,6 +134,12 @@
       - `getKeep() -> Promise<number>`
       - `setKeep(value: number) -> Promise<void>`
       - 语义：宿主统一负责历史索引、实时索引流与 keep 设置持久化；调用方不应直接操作 `devlog_*` 命令。
+    - `api.dev.longRun`
+      - `start(options?: LongRunOptions) -> Promise<LongRunReport>`
+      - `cancel(reason?: string) -> Promise<{ cancelled: boolean; reason: string }>`
+      - `status() -> LongRunStatus`
+      - `getLastReport() -> LongRunReport | null`
+      - 语义：宿主在真实窗口内写入聊天输入框并调用 `SillyTavern.getContext().generate()`，用于验证完整前端生成链路；报告只包含摘要诊断，不承诺保存完整聊天、表格或向量内容。
 
 `api.dev.*` 的长期契约要求：
 

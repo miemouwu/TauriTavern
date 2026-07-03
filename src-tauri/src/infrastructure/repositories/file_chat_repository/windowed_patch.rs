@@ -225,7 +225,7 @@ async fn patch_payload_windowed_internal(
 
         let metadata = read_existing_payload_metadata(path).await?;
         let header_end_offset = (header.as_bytes().len() + 1) as u64;
-        return cursor_from_metadata(header_end_offset, &metadata);
+        return cursor_from_metadata(header_end_offset, header_end_offset, &metadata);
     }
 
     let metadata = existing_metadata.unwrap();
@@ -514,13 +514,17 @@ async fn patch_payload_windowed_internal(
     logger::debug(&format!("Patched windowed chat payload: {:?}", path));
 
     let metadata = read_existing_payload_metadata(path).await?;
+    let new_header_end_offset = if header_changed {
+        (header.as_bytes().len() + 1) as u64
+    } else {
+        existing_header_end_offset
+    };
     let new_cursor_offset = if header_changed {
-        let new_header_end_offset = (header.as_bytes().len() + 1) as u64;
         let preserved_prefix_bytes = cursor.offset.saturating_sub(existing_header_end_offset);
         new_header_end_offset + preserved_prefix_bytes
     } else {
         cursor.offset
     };
 
-    cursor_from_metadata(new_cursor_offset, &metadata)
+    cursor_from_metadata(new_cursor_offset, new_header_end_offset, &metadata)
 }

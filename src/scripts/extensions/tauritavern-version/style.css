@@ -126,6 +126,24 @@
     background-color: var(--black20a);
 }
 
+.ttv-mobile-debug-snapshot {
+    max-height: min(70vh, 720px);
+    overflow: auto;
+}
+
+.ttv-mobile-debug-snapshot pre {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background-color: var(--black20a);
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.9rem;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 @media (max-width: 600px) {
     #tauritavern_version_settings .ttv-row {
         flex-direction: column;

@@ -27,6 +27,18 @@ test('SillyTavern context contract still exposes generate + stopGeneration', asy
     assert.match(slice, /\beventTypes\b/);
 });
 
+test('SillyTavern context exposes persisted active chat selection', async () => {
+    const source = await readFile(path.join(REPO_ROOT, 'src/scripts/st-context.js'), 'utf8');
+    const contextStart = source.indexOf('export function getContext()');
+    assert.ok(contextStart >= 0);
+    const context = source.slice(contextStart);
+
+    assert.match(source, /import[\s\S]*\bactive_character\b[\s\S]*from\s+'\.\.\/script\.js';/);
+    assert.match(source, /import[\s\S]*\bactive_group\b[\s\S]*from\s+'\.\.\/script\.js';/);
+    assert.match(context, /\bactiveCharacter\s*:\s*active_character,/);
+    assert.match(context, /\bactiveGroup\s*:\s*active_group,/);
+});
+
 test('SillyTavern context generate is wired through safeGenerate', async () => {
     const source = await readFile(path.join(REPO_ROOT, 'src/scripts/st-context.js'), 'utf8');
 

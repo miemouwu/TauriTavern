@@ -1,6 +1,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::application::errors::ApplicationError;
+use crate::application::services::agent_model_gateway::providers::AgentProviderAdapter;
 use crate::application::services::chat_completion_service::exchange::{
     ChatCompletionExchange, NormalizedChatCompletionResponse,
 };
@@ -22,10 +23,12 @@ pub(super) fn decode_chat_completion_exchange(
     exchange: ChatCompletionExchange,
     tools: &[AgentToolSpec],
 ) -> Result<AgentModelResponse, ApplicationError> {
-    if !exchange
-        .normalization_report
-        .synthetic_tool_call_ids()
-        .is_empty()
+    let adapter = AgentProviderAdapter::from_format(exchange.provider_format);
+    if adapter.native_provider().is_some()
+        && !exchange
+            .normalization_report
+            .synthetic_tool_call_ids()
+            .is_empty()
     {
         return Err(ApplicationError::ValidationError(format!(
             "model.invalid_tool_call: provider response is missing tool_call_id for tool calls: {}",
@@ -188,12 +191,61 @@ fn canonical_tool_name<'a>(raw: &'a str, tools: &'a [AgentToolSpec]) -> Option<&
 
 fn parse_tool_call_arguments(value: Option<&Value>) -> Value {
     match value {
-        Some(Value::String(raw)) => {
-            serde_json::from_str::<Value>(raw).unwrap_or_else(|_| Value::String(raw.to_string()))
-        }
+        Some(Value::String(raw)) => parse_tool_call_arguments_str(raw),
         Some(Value::Null) | None => Value::Object(Map::new()),
         Some(value) => value.clone(),
     }
+}
+
+fn parse_tool_call_arguments_str(raw: &str) -> Value {
+    if let Ok(value) = serde_json::from_str::<Value>(raw) {
+        return value;
+    }
+
+    if let Some(candidate) = first_balanced_json(raw) {
+        if let Ok(value) = serde_json::from_str::<Value>(candidate) {
+            return value;
+        }
+    }
+
+    Value::String(raw.to_string())
+}
+
+fn first_balanced_json(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let start = bytes.iter().position(|&b| b == b'{' || b == b'[')?;
+    let open = bytes[start];
+    let close = if open == b'{' { b'}' } else { b']' };
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (index, &byte) in bytes.iter().enumerate().skip(start) {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match byte {
+            b'"' => in_string = true,
+            b if b == open => depth += 1,
+            b if b == close => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&text[start..=index]);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 fn extract_text_from_message(message: &Map<String, Value>) -> String {

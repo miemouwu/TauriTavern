@@ -35,6 +35,11 @@ pub struct ChatPayloadCursor {
     pub offset: u64,
     pub size: u64,
     pub modified_millis: i64,
+    /// Byte offset where message body lines started when this cursor was minted.
+    /// Cursors from older frontends deserialize with 0 and keep the legacy raw
+    /// offset behavior.
+    #[serde(default)]
+    pub header_end: u64,
 }
 
 /// Tail window for a chat JSONL payload.

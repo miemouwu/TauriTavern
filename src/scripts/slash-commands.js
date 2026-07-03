@@ -319,6 +319,59 @@ export function initDefaultSlashCommands() {
         return '';
     }
 
+    function parseOptionalLongRunPositiveInteger(value, label) {
+        if (value === undefined || value === null || value === '') {
+            return undefined;
+        }
+
+        const number = typeof value === 'number' ? value : Number(value);
+        if (!Number.isSafeInteger(number) || number <= 0) {
+            throw new Error(`${label} must be a positive integer`);
+        }
+        return number;
+    }
+
+    function parseOptionalLongRunBoolean(value, label) {
+        if (value === undefined || value === null || value === '') {
+            return undefined;
+        }
+        if (typeof value === 'boolean') {
+            return value;
+        }
+
+        const text = String(value);
+        if (isTrueBoolean(text)) {
+            return true;
+        }
+        if (isFalseBoolean(text)) {
+            return false;
+        }
+        throw new Error(`${label} must be true or false`);
+    }
+
+    function buildTauriTavernLongRunOptions(args, turnsText) {
+        const options = {};
+        const unnamedTurns = String(turnsText ?? '').trim();
+        const turns = parseOptionalLongRunPositiveInteger(args.turns ?? unnamedTurns, 'turns');
+        const timeoutMs = parseOptionalLongRunPositiveInteger(args.timeoutMs ?? args.timeout, 'timeoutMs');
+        const settleMs = parseOptionalLongRunPositiveInteger(args.settleMs ?? args.settle, 'settleMs');
+        const collectShujuku = parseOptionalLongRunBoolean(args.shujuku ?? args.collectShujuku, 'shujuku');
+
+        if (turns !== undefined) {
+            options.turns = turns;
+        }
+        if (timeoutMs !== undefined) {
+            options.timeoutMs = timeoutMs;
+        }
+        if (settleMs !== undefined) {
+            options.settleMs = settleMs;
+        }
+        if (collectShujuku !== undefined) {
+            options.collectShujuku = collectShujuku;
+        }
+        return options;
+    }
+
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'api',
         callback: async function (args, text) {
@@ -3718,6 +3771,87 @@ export function initDefaultSlashCommands() {
             }, (message) => toastr.error(t`Failed to open backend logs: ${message}`));
         },
         helpString: t`Open the backend log viewer (TauriTavern only).`,
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'tt-longrun',
+        aliases: ['longrun'],
+        callback: async (args, turnsText) => {
+            const longRun = window.__TAURITAVERN__?.api?.dev?.longRun;
+            if (!longRun) {
+                toastr.error(t`TauriTavern long-run is only available in TauriTavern.`);
+                return '';
+            }
+
+            const options = buildTauriTavernLongRunOptions(args, turnsText);
+            if (args.prompt) {
+                options.promptTemplate = String(args.prompt);
+            }
+            let report;
+            try {
+                report = await longRun.start({ ...options });
+            } catch (error) {
+                toastr.error(t`TauriTavern long-run failed: ${getSlashCommandErrorMessage(error)}`);
+                throw error;
+            }
+
+            const requestedTurns = report.options?.turns ?? options.turns ?? report.turns?.length ?? 0;
+            const completedTurns = report.turns?.length ?? 0;
+            const errorCount = report.errors?.length ?? 0;
+            const summary = {
+                id: report.id,
+                status: report.status,
+                turns: completedTurns,
+                requestedTurns,
+                errors: errorCount,
+            };
+            const toastMessage = `TauriTavern long-run ${report.status}: ${completedTurns}/${requestedTurns} turns, ${errorCount} errors.`;
+
+            console.info('[TauriTavern] long-run report', report);
+            if (report.status === 'completed') {
+                toastr.success(toastMessage);
+            } else if (report.status === 'cancelled') {
+                toastr.warning(toastMessage);
+            } else {
+                toastr.error(toastMessage);
+            }
+
+            return JSON.stringify(summary);
+        },
+        namedArgumentList: [
+            SlashCommandNamedArgument.fromProps({
+                name: 'turns',
+                description: t`Number of generation turns to run. Defaults to the dev API default.`,
+                typeList: [ARGUMENT_TYPE.NUMBER],
+            }),
+            SlashCommandNamedArgument.fromProps({
+                name: 'timeoutMs',
+                description: t`Per-turn generation timeout in milliseconds.`,
+                typeList: [ARGUMENT_TYPE.NUMBER],
+            }),
+            SlashCommandNamedArgument.fromProps({
+                name: 'settleMs',
+                description: t`Extra wait after each turn before collecting diagnostics.`,
+                typeList: [ARGUMENT_TYPE.NUMBER],
+            }),
+            SlashCommandNamedArgument.fromProps({
+                name: 'prompt',
+                description: t`Prompt template. Supports {{turn}}, {{turns}}, {{runId}}, and {{startedAt}}.`,
+                typeList: [ARGUMENT_TYPE.STRING],
+            }),
+            SlashCommandNamedArgument.fromProps({
+                name: 'shujuku',
+                description: t`Collect shujuku and vector diagnostics.`,
+                typeList: [ARGUMENT_TYPE.BOOLEAN],
+            }),
+        ],
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({
+                description: t`optional number of turns`,
+                typeList: [ARGUMENT_TYPE.NUMBER],
+            }),
+        ],
+        helpString: t`Run a TauriTavern dev long-run generation check in the current chat. Example: <code>/tt-longrun 5</code>.`,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({

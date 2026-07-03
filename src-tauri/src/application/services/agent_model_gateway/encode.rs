@@ -37,7 +37,7 @@ pub(crate) fn encode_chat_completion_request(
         payload.insert(
             "tool_choice".to_string(),
             if request.tool_choice.is_null() {
-                Value::String("auto".to_string())
+                Value::String("required".to_string())
             } else {
                 request.tool_choice.clone()
             },
