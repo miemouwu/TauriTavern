@@ -53,6 +53,7 @@ android {
             }
         }
         getByName("release") {
+            applicationIdSuffix = ".lockfix"
             isMinifyEnabled = true
             isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
