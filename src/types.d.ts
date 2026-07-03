@@ -917,11 +917,23 @@ type TauriTavernDevLongRunApi = {
     getLastReport: () => TauriTavernDevLongRunReport | null;
 };
 
+type TauriTavernMobileDebugApi = {
+    snapshot: (options?: { reason?: unknown }) => any;
+    logSnapshot: (options?: { reason?: unknown }) => Promise<any>;
+    logEntry: (options?: {
+        level?: 'debug' | 'info' | 'warn' | 'error';
+        source?: string;
+        event?: string;
+        detail?: any;
+    }) => Promise<{ ok: boolean; timestampMs?: number; reason?: string }>;
+};
+
 type TauriTavernDevApi = {
     frontendLogs: TauriTavernFrontendLogsApi;
     backendLogs: TauriTavernBackendLogsApi;
     llmApiLogs: TauriTavernLlmApiLogsApi;
     longRun: TauriTavernDevLongRunApi;
+    mobile: TauriTavernMobileDebugApi;
 };
 
 type TauriTavernWorldInfoApi = {

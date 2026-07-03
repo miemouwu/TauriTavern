@@ -2,6 +2,9 @@
 
 const MOBILE_DEBUG_SNAPSHOT_VERSION = 1;
 const MOBILE_DEBUG_LOG_TARGET = 'mobile-debug';
+const MOBILE_DEBUG_EXTENSION_LOG_VERSION = 1;
+const SECRET_KEY_RE = /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret|chatid|chat_id|sessionid|session_id)/i;
+const SECRET_VALUE_RE = /\b(?:sk|meow|cat)-?[A-Za-z0-9_-]{8,}\b/g;
 
 const SAFE_INSET_VARS = /** @type {const} */ ({
     top: '--tt-inset-top',
@@ -29,6 +32,52 @@ function trimPreview(value, maxLength = 160) {
         return text;
     }
     return `${text.slice(0, Math.max(0, maxLength - 1))}...`;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} fallback
+ * @param {number} maxLength
+ */
+function safeLabel(value, fallback, maxLength = 80) {
+    const text = trimPreview(String(value || '').replace(/\s+/g, ' '), maxLength);
+    return text || fallback;
+}
+
+/**
+ * @param {unknown} level
+ */
+function normalizeLogLevel(level) {
+    return ['debug', 'info', 'warn', 'error'].includes(String(level || ''))
+        ? /** @type {'debug' | 'info' | 'warn' | 'error'} */ (String(level))
+        : 'info';
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} depth
+ */
+function sanitizeLogDetail(value, depth = 0) {
+    if (depth > 4) {
+        return '[depth-limit]';
+    }
+    if (value == null || typeof value === 'number' || typeof value === 'boolean') {
+        return value;
+    }
+    if (typeof value === 'string') {
+        return trimPreview(value.replace(SECRET_VALUE_RE, '[redacted]'), 500);
+    }
+    if (Array.isArray(value)) {
+        return value.slice(0, 20).map(item => sanitizeLogDetail(item, depth + 1));
+    }
+    if (typeof value === 'object') {
+        const output = /** @type {Record<string, unknown>} */ ({});
+        for (const [key, item] of Object.entries(/** @type {Record<string, unknown>} */ (value)).slice(0, 80)) {
+            output[key] = SECRET_KEY_RE.test(key) ? '[redacted]' : sanitizeLogDetail(item, depth + 1);
+        }
+        return output;
+    }
+    return trimPreview(String(value), 160);
 }
 
 /**
@@ -247,6 +296,24 @@ export function createMobileDebugApi(deps = {}) {
                 MOBILE_DEBUG_LOG_TARGET,
             );
             return snapshot;
+        },
+        async logEntry(options = {}) {
+            const level = normalizeLogLevel(options?.level);
+            const source = safeLabel(options?.source, 'extension');
+            const event = safeLabel(options?.event, 'event', 120);
+            const entry = {
+                version: MOBILE_DEBUG_EXTENSION_LOG_VERSION,
+                timestampMs: now(),
+                source,
+                event,
+                detail: sanitizeLogDetail(options?.detail ?? null),
+            };
+            appendFrontendLogEntry?.(
+                level,
+                `[TauriTavern][mobile-debug][${source}] ${event} ${JSON.stringify(entry)}`,
+                MOBILE_DEBUG_LOG_TARGET,
+            );
+            return { ok: true, timestampMs: entry.timestampMs };
         },
     };
 }

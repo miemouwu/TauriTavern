@@ -201,6 +201,42 @@ test('api.dev.mobile captures a mobile runtime snapshot and writes it to fronten
     assert.doesNotMatch(entries[0].message, /sk-do-not-log|meow_do_not_log/);
 });
 
+test('api.dev.mobile accepts sanitized extension log entries without requiring plugin storage', async () => {
+    installMobileHarness();
+
+    const entries = [];
+    const moduleUrl = pathToFileURL(path.join(REPO_ROOT, 'src/tauri/main/api/dev-mobile-debug.js'));
+    const { createMobileDebugApi } = await import(`${moduleUrl.href}?test=${Date.now()}`);
+
+    const api = createMobileDebugApi({
+        now: () => 123456790,
+        appendFrontendLogEntry(level, message, target) {
+            entries.push({ level, message, target });
+        },
+    });
+
+    const accepted = await api.logEntry({
+        level: 'warn',
+        source: 'LittleWhiteBox',
+        event: 'l0-maintenance',
+        detail: {
+            chatId: 'secret-chat-id',
+            apiKey: 'sk-do-not-log',
+            nested: { token: 'meow_do_not_log', kept: 42 },
+        },
+    });
+
+    assert.equal(accepted.ok, true);
+    assert.deepEqual(entries, [{
+        level: 'warn',
+        target: 'mobile-debug',
+        message: entries[0].message,
+    }]);
+    assert.match(entries[0].message, /^\[TauriTavern\]\[mobile-debug\]\[LittleWhiteBox\] l0-maintenance /);
+    assert.match(entries[0].message, /"kept":42/);
+    assert.doesNotMatch(entries[0].message, /sk-do-not-log|meow_do_not_log|secret-chat-id/);
+});
+
 test('version extension exposes a mobile debug snapshot entry', async () => {
     const [settingsHtml, indexSource, zhCn, en] = await Promise.all([
         readFile(path.join(REPO_ROOT, 'src/scripts/extensions/tauritavern-version/settings.html'), 'utf8'),
